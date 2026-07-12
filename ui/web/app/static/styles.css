@@ -484,6 +484,25 @@ svg {
   white-space: nowrap;
 }
 
+.button--danger-outline {
+  color: var(--red);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--red) 55%, var(--border));
+}
+
+.button--danger-outline:hover:not(:disabled) {
+  background: var(--red-soft);
+  border-color: var(--red);
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
 .topbar-account {
   display: flex;
   align-items: center;

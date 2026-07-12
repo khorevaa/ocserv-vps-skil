@@ -58,6 +58,8 @@ func startFakeControl(t *testing.T, path string) {
 					result = map[string]any{"events": []any{map[string]any{"occurred_at": "2026-07-12T10:01:30Z", "event": "disconnected", "username": "vpn_user", "client_ip": "192.0.2.5", "vpn_ip": "10.66.0.7", "protocol": "OpenConnect", "duration_seconds": 90, "bytes_in": 1000, "bytes_out": 2000}}, "total": 1}
 				case "disconnect_connection":
 					result = map[string]any{"id": request["id"], "disconnected": true}
+				case "restart_service":
+					result = map[string]any{"restarting": true}
 				case "add_user":
 					result = map[string]any{"username": request["username"], "password": "Generated!Pass1"}
 				case "rotate_password":
@@ -244,5 +246,19 @@ func TestUIInfoMasksAccessSecret(t *testing.T) {
 	response := perform(app, "GET", "/api/v1/ui", "", cookie, "")
 	if response.Code != 200 || !strings.Contains(response.Body.String(), "ocserv-vps-ui:0.4.5") || strings.Contains(response.Body.String(), strings.Repeat("A", 64)) {
 		t.Fatalf("ui info=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRestartRequiresCSRF(t *testing.T) {
+	app, _ := testApplication(t, strings.Repeat("A", 64))
+	access := perform(app, "POST", "/api/v1/access", `{"secret":"`+strings.Repeat("A", 64)+`"}`, nil, "")
+	cookie := access.Result().Cookies()[0]
+	csrf, _ := decodeBody(t, access)["csrf_token"].(string)
+	if response := perform(app, "POST", "/api/v1/service/restart", `{}`, cookie, ""); response.Code != 403 {
+		t.Fatalf("restart without CSRF=%d", response.Code)
+	}
+	response := perform(app, "POST", "/api/v1/service/restart", `{}`, cookie, csrf)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"restarting":true`) {
+		t.Fatalf("restart=%d %s", response.Code, response.Body.String())
 	}
 }

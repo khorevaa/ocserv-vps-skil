@@ -115,6 +115,8 @@ func (a *application) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		a.overview(writer)
 	case path == "/api/v1/ui" && request.Method == http.MethodGet:
 		a.uiInfo(writer)
+	case path == "/api/v1/service/restart" && request.Method == http.MethodPost:
+		a.restartService(writer, request, context)
 	case path == "/api/v1/users" && request.Method == http.MethodGet:
 		a.listUsers(writer)
 	case path == "/api/v1/connections" && request.Method == http.MethodGet:
@@ -287,6 +289,18 @@ func (a *application) uiInfo(writer http.ResponseWriter) {
 		"version": safeVersion, "image": image,
 		"access_secret": map[string]any{"configured": true, "masked": "••••••••••••••••"},
 	})
+}
+
+func (a *application) restartService(writer http.ResponseWriter, request *http.Request, context requestContext) {
+	noStore(writer.Header())
+	if !a.requireCSRF(writer, request, context) {
+		return
+	}
+	raw, err := a.control.request("restart_service", nil)
+	if err == nil {
+		_ = a.store.audit(auditRecord{Actor: "operator", Action: "restart_service", Success: true, Remote: remoteIdentity(request)})
+	}
+	a.controlResponse(writer, raw, err, nil)
 }
 func (a *application) listUsers(writer http.ResponseWriter) {
 	raw, err := a.control.request("list_users", nil)

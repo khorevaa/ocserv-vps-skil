@@ -95,7 +95,7 @@ Persistent paths:
 - `/opt/ocserv-vps/ui-public`: public certificate chain plus an atomically refreshed state mirror
 - `/opt/ocserv-vps/logs/vpn-events.jsonl`: bounded normalized VPN connect/disconnect journal, mode `0640`
 - `/opt/ocserv-vps/locks/lifecycle.lock`: serializes CLI lifecycle operations
-- `/opt/ocserv-vps/locks/operation.lock`: serializes CLI and UI password mutations
+- `/opt/ocserv-vps/locks/operation.lock`: serializes CLI and UI mutations and service restart
 - `/root/ocserv-vps-ui-access`: one-time access-secret handoff
 - `/usr/local/sbin/ocserv-ui-access-info`: root-only (`0700`) URL/secret/tunnel display command
 
@@ -126,9 +126,13 @@ internal Docker network.
   from a root-only snapshot when `ocpasswd` or reload fails.
 - Use `occtl terminate user` when rotation requests session invalidation.
 - Use only `occtl disconnect id <validated integer>` for the connection action.
+- Implement service restart only as the fixed `occtl stop now` operation. The
+  existing `restart: unless-stopped` policy starts the ocserv container again;
+  never mount the Docker socket or accept a command, service name, or arguments
+  from the browser.
 - Allowlist every connection and journal response field; never return full raw
   `occtl` objects or arbitrary server-log lines.
-- Do not expose firewall, certificate, image update, restart, or arbitrary command
+- Do not expose firewall, certificate, image update, or arbitrary command
   operations through the MVP API.
 
 ## Installation gates
@@ -193,6 +197,7 @@ revokes all previously issued operator sessions.
 - `GET /api/v1/connections`: allowlisted active occtl sessions
 - `DELETE /api/v1/connections/{id}`: disconnect one validated active session
 - `GET /api/v1/journal`: newest validated VPN connect/disconnect events only
+- `POST /api/v1/service/restart`: CSRF-protected fixed ocserv restart; active VPN sessions disconnect
 
 `POST /api/v1/access` is the authentication endpoint. It accepts only the
 strict secret JSON body under exact Host and Origin checks, is reachable only

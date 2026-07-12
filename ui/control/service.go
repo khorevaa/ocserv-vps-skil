@@ -66,6 +66,7 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 		"list_connections":      {"request_id": true, "action": true},
 		"list_journal":          {"request_id": true, "action": true},
 		"disconnect_connection": {"request_id": true, "action": true, "id": true},
+		"restart_service":       {"request_id": true, "action": true},
 		"add_user":              {"request_id": true, "action": true, "username": true},
 		"rotate_password":       {"request_id": true, "action": true, "username": true, "terminate_sessions": true},
 	}
@@ -95,6 +96,8 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 			return nil, controlFailure(400, "invalid_connection_id", "The connection ID is invalid.")
 		}
 		return s.disconnectConnection(id)
+	case "restart_service":
+		return s.restartService()
 	}
 	username, ok := request["username"].(string)
 	if !ok || !usernamePattern.MatchString(username) {
@@ -112,6 +115,18 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 		}
 	}
 	return s.rotatePassword(username, terminate)
+}
+
+func (s *controlService) restartService() (map[string]any, error) {
+	lock, err := acquireFileLock(s.config.OperationLock)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+	if _, err = s.runOCCTL("stop", "now"); err != nil {
+		return nil, err
+	}
+	return map[string]any{"restarting": true}, nil
 }
 
 func (s *controlService) listConnections() (map[string]any, error) {

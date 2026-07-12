@@ -73,6 +73,8 @@ func (f *fakeRunner) Run(argv []string, stdin string) (string, error) {
 		return `{}`, nil
 	case reflect.DeepEqual(command, []string{"disconnect", "id", "41"}):
 		return `{}`, nil
+	case reflect.DeepEqual(command, []string{"stop", "now"}):
+		return `{}`, nil
 	default:
 		return "", errors.New("unexpected command: " + strings.Join(command, " "))
 	}
@@ -157,6 +159,17 @@ func TestConnectionsDisconnectAndVPNJournalAreAllowlisted(t *testing.T) {
 	encoded, _ = json.Marshal(events)
 	if strings.Contains(string(encoded), "must-not-leak") {
 		t.Fatalf("journal leaked unapproved fields: %s", encoded)
+	}
+}
+
+func TestRestartServiceUsesFixedOCCTLCommand(t *testing.T) {
+	service, runner, _ := testService(t)
+	result, err := service.restartService()
+	if err != nil || result["restarting"] != true {
+		t.Fatalf("restart failed: %#v %v", result, err)
+	}
+	if !reflect.DeepEqual(runner.calls[len(runner.calls)-1][4:], []string{"stop", "now"}) {
+		t.Fatalf("unsafe restart command: %#v", runner.calls)
 	}
 }
 

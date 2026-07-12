@@ -447,6 +447,11 @@
 
   el("overview-refresh").addEventListener("click", () => loadOverview(true));
 
+  el("restart-service-button").addEventListener("click", () => {
+    clearInlineError(el("restart-error"));
+    openModal("restart-modal");
+  });
+
   function normalizeUsers(payload) {
     if (!payload || !Array.isArray(payload.users)) return [];
     return payload.users
@@ -780,6 +785,43 @@
       await loadConnections(true);
     } catch (error) {
       if (!handleUnauthorized(error)) showInlineError(el("disconnect-error"), error.message || "Не удалось завершить подключение.");
+    } finally {
+      setBusy(submit, false);
+    }
+  });
+
+  el("restart-submit").addEventListener("click", async () => {
+    const submit = el("restart-submit");
+    clearInlineError(el("restart-error"));
+    setBusy(submit, true);
+    try {
+      try {
+        await apiRequest("/api/v1/service/restart", { method: "POST" });
+      } catch (error) {
+        const code = error && error.payload && error.payload.error;
+        if (!["backend_unavailable", "control_unavailable"].includes(code)) throw error;
+      }
+      closeModal();
+      showToast("ocserv перезапускается…");
+      state.overviewLoaded = false;
+      state.connectionsLoaded = false;
+      state.usersLoaded = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        try {
+          const [overview, ui] = await Promise.all([apiRequest("/api/v1/overview"), apiRequest("/api/v1/ui")]);
+          if (isServiceOnline(overview && overview.service && overview.service.status)) {
+            renderOverview(overview);
+            renderUIInfo(ui || {});
+            state.overviewLoaded = true;
+            showToast("ocserv снова работает", "success");
+            return;
+          }
+        } catch (_error) { /* service is still restarting */ }
+      }
+      showToast("ocserv не вернулся online за 30 секунд. Проверьте состояние сервера.", "danger");
+    } catch (error) {
+      if (!handleUnauthorized(error)) showInlineError(el("restart-error"), error.message || "Не удалось перезапустить ocserv.");
     } finally {
       setBusy(submit, false);
     }

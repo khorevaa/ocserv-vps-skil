@@ -149,10 +149,13 @@
             <div>
               <h1 id="overview-title">Состояние системы</h1>
             </div>
-            <button id="overview-refresh" class="button button--secondary" type="button">
-              <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
-              <span>Обновить</span>
-            </button>
+            <div class="page-actions">
+              <button id="restart-service-button" class="button button--danger-outline" type="button">Перезапустить ocserv</button>
+              <button id="overview-refresh" class="button button--secondary" type="button">
+                <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                <span>Обновить</span>
+              </button>
+            </div>
           </div>
 
           <div id="overview-error" class="alert alert--danger is-hidden" role="alert"></div>
@@ -469,6 +472,24 @@
       <footer class="modal-actions">
         <button class="button button--secondary modal-close" type="button">Отмена</button>
         <button id="disconnect-submit" class="button button--danger" type="button">Отключить</button>
+      </footer>
+    </section>
+
+    <section id="restart-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="restart-title">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">Системная операция</p>
+          <h2 id="restart-title">Перезапустить ocserv?</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" aria-label="Закрыть окно"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button>
+      </header>
+      <div class="modal-body">
+        <div id="restart-error" class="alert alert--danger is-hidden" role="alert"></div>
+        <p>Все активные VPN-подключения будут разорваны. Docker автоматически запустит ocserv снова; панель дождётся восстановления сервиса.</p>
+      </div>
+      <footer class="modal-actions">
+        <button class="button button--secondary modal-close" type="button">Отмена</button>
+        <button id="restart-submit" class="button button--danger" type="button">Перезапустить</button>
       </footer>
     </section>
   </div>
