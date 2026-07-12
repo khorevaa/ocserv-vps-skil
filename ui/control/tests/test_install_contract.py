@@ -125,6 +125,19 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertIn('path == "/api/v1/journal"', web)
         self.assertIn('path == "/api/v1/connections"', web)
 
+    def test_ui_upgrade_is_transactional_and_preserves_access(self) -> None:
+        repository = pathlib.Path(__file__).resolve().parents[3]
+        controller = (repository / "skills" / "ocserv-vps" / "scripts" / "upgrade-ui.sh").read_text(encoding="utf-8")
+        remote = (repository / "skills" / "ocserv-vps" / "scripts" / "remote" / "upgrade-ui.sh").read_text(encoding="utf-8")
+        self.assertIn("--approve-restart", controller)
+        self.assertIn("create_stack_backup", remote)
+        self.assertIn("restore_previous", remote)
+        self.assertIn("ensure_vpn_journal_config", remote)
+        self.assertIn("render_compose_file", remote)
+        self.assertIn("OCSERV_UI_LOCAL_HOST=${UI_LOCAL_HOST}", remote)
+        self.assertIn("print_ui_access_info_if_installed", remote)
+        self.assertNotIn("docker.sock", remote)
+
     def test_installer_reserves_and_validates_host_identity_transactionally(self) -> None:
         repository = pathlib.Path(__file__).resolve().parents[3]
         remote_installer = (

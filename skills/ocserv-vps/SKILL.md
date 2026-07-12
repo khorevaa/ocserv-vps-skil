@@ -232,6 +232,11 @@ connect/disconnect journal, and system/light/dark theme selection.
 
 Rotate a suspected or exposed access secret with `scripts/rotate-ui-access.sh --approve-restart`. This recreates only the web container, restores the old secret on failure, and invalidates every previous operator session on success.
 
+Upgrade an existing UI pair with `scripts/upgrade-ui.sh --approve-restart`.
+Preserve the access secret, random browser hostname, local port, and JSON state;
+validate matching image revisions and restore the previous Compose/config files
+automatically when activation or health checks fail.
+
 Require the installation transaction to preserve direct VPN TCP/UDP ownership, keep the web container unprivileged, avoid the Docker socket, and pass both the server-side and controller-side OpenConnect probes.
 
 ## Failure handling
@@ -256,6 +261,7 @@ Read [`references/troubleshooting.md`](references/troubleshooting.md) for stage-
 - `scripts/add-user.sh`: generated-password user management
 - `scripts/test-openconnect-client.sh`: controller-side OpenConnect tunnel and HTTPS data-path test
 - `scripts/install-ui.sh`: transactional Unix-socket UI installation
+- `scripts/upgrade-ui.sh`: transactional upgrade of an existing UI/control pair with preserved access data
 - `scripts/ui-tunnel.sh` / `scripts/ui-tunnel.ps1`: controller-local SSH tunnel that retrieves and displays the exact installed random URL
 - `scripts/rotate-ui-access.sh`: atomic UI access-secret rotation and operator-session revocation
 - `scripts/ui-status.sh`: UI containers, private socket, local-tunnel contract, and handoff status

@@ -60,6 +60,7 @@ $ocserv-vps разверни полностью настроенный Dockerize
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): создание password-пользователя
 - [`test-openconnect-client.sh`](skills/ocserv-vps/scripts/test-openconnect-client.sh): локальная Linux/WSL-проверка tunnel и HTTPS data path
 - [`install-ui.sh`](skills/ocserv-vps/scripts/install-ui.sh): транзакционная установка UI с Unix socket
+- [`upgrade-ui.sh`](skills/ocserv-vps/scripts/upgrade-ui.sh): транзакционное обновление UI с сохранением URL, секрета и JSON-состояния
 - [`ui-tunnel.sh`](skills/ocserv-vps/scripts/ui-tunnel.sh) / [`ui-tunnel.ps1`](skills/ocserv-vps/scripts/ui-tunnel.ps1): локальный SSH-туннель, который получает и показывает точный установленный random URL
 - [`rotate-ui-access.sh`](skills/ocserv-vps/scripts/rotate-ui-access.sh): ротация секрета UI и отзыв операторских сессий
 - [`ui-status.sh`](skills/ocserv-vps/scripts/ui-status.sh): состояние UI-контейнеров, приватного socket, tunnel contract и handoff

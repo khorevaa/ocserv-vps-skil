@@ -60,6 +60,7 @@ $ocserv-vps bootstrap a complete Dockerized ocserv VPN on my VPS
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): generate and add a password user
 - [`test-openconnect-client.sh`](skills/ocserv-vps/scripts/test-openconnect-client.sh): local Linux/WSL tunnel and HTTPS data-path test
 - [`install-ui.sh`](skills/ocserv-vps/scripts/install-ui.sh): transactional Unix-socket UI installation
+- [`upgrade-ui.sh`](skills/ocserv-vps/scripts/upgrade-ui.sh): transactional existing-UI upgrade with preserved URL, secret, and JSON state
 - [`ui-tunnel.sh`](skills/ocserv-vps/scripts/ui-tunnel.sh) / [`ui-tunnel.ps1`](skills/ocserv-vps/scripts/ui-tunnel.ps1): controller-local SSH tunnel that retrieves and displays the exact installed random URL
 - [`rotate-ui-access.sh`](skills/ocserv-vps/scripts/rotate-ui-access.sh): rotate the UI access secret and revoke operator sessions
 - [`ui-status.sh`](skills/ocserv-vps/scripts/ui-status.sh): UI containers, private socket, tunnel contract, and handoff status
