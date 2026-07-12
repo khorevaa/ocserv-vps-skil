@@ -152,10 +152,11 @@ install_docker_engine() {
   fi
 
   [[ -r /etc/os-release ]] || die '/etc/os-release is unavailable.'
-  # shellcheck disable=SC1091
-  source /etc/os-release
-  case "${ID:-}" in debian|ubuntu) ;; *) die "Unsupported Docker host: ${ID:-unknown}" ;; esac
-  [[ -n "${VERSION_CODENAME:-}" ]] || die 'VERSION_CODENAME is missing.'
+  local docker_os_id docker_os_codename
+  docker_os_id="$(. /etc/os-release; printf '%s' "${ID:-}")"
+  docker_os_codename="$(. /etc/os-release; printf '%s' "${VERSION_CODENAME:-}")"
+  case "${docker_os_id}" in debian|ubuntu) ;; *) die "Unsupported Docker host: ${docker_os_id:-unknown}" ;; esac
+  [[ -n "${docker_os_codename}" ]] || die 'VERSION_CODENAME is missing.'
 
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
@@ -169,12 +170,12 @@ install_docker_engine() {
     apt-get remove -y "${conflicting[@]}"
   fi
   install -d -m 0755 /etc/apt/keyrings
-  curl --proto '=https' --tlsv1.2 --fail --location "https://download.docker.com/linux/${ID}/gpg" --output /etc/apt/keyrings/docker.asc
+  curl --proto '=https' --tlsv1.2 --fail --location "https://download.docker.com/linux/${docker_os_id}/gpg" --output /etc/apt/keyrings/docker.asc
   chmod 0644 /etc/apt/keyrings/docker.asc
   cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
-URIs: https://download.docker.com/linux/${ID}
-Suites: ${VERSION_CODENAME}
+URIs: https://download.docker.com/linux/${docker_os_id}
+Suites: ${docker_os_codename}
 Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc

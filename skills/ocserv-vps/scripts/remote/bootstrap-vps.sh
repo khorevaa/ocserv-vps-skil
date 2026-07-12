@@ -60,9 +60,8 @@ validate_port 'VPN port' "${VPN_PORT}"
 validate_port 'SSH port' "${SSH_PORT}"
 
 [[ -r /etc/os-release ]] || die '/etc/os-release is unavailable.'
-# shellcheck disable=SC1091
-source /etc/os-release
-case "${ID:-}" in debian|ubuntu) ;; *) die "Unsupported OS: ${ID:-unknown}" ;; esac
+OS_ID="$(. /etc/os-release; printf '%s' "${ID:-}")"
+case "${OS_ID}" in debian|ubuntu) ;; *) die "Unsupported OS: ${OS_ID:-unknown}" ;; esac
 [[ -e /dev/net/tun ]] || die '/dev/net/tun is unavailable.'
 [[ ! -e "${OCSERV_STATE_FILE}" ]] || die 'Managed ocserv stack already exists. Use deploy-release.sh for upgrades.'
 [[ "$(docker inspect --format '{{.State.Running}}' "${OCSERV_CONTAINER}" 2>/dev/null || true)" != "true" ]] || die 'Container ocserv-vps is already running.'
