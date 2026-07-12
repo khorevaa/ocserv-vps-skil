@@ -584,7 +584,7 @@ svg {
 }
 
 .nav-item.is-active {
-  color: #173d62;
+  color: var(--text-strong);
   background: var(--blue-soft);
 }
 
