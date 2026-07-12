@@ -1,51 +1,57 @@
-# Release sourcing and trust
+# Source, Dockerfile, and GHCR trust
 
-Use this reference before running `deploy-release.sh`.
+## GHCR publication workflow
 
-## Authoritative locations
+Use `.github/workflows/publish-ocserv-image.yml` as the only supported image publisher. It prepares a verified build context with `docker/prepare-context.sh`, builds the explicit `docker/Dockerfile`, and pushes to `ghcr.io/khorevaa/ocserv-vps` with provenance and SBOM enabled.
 
-Resolve releases from the official ocserv project and its official download page:
+The workflow uses the repository `GITHUB_TOKEN` with `packages: write`; do not copy a GHCR token to the VPS. New GHCR packages may be private by default. Make the package public for anonymous deployment, or pre-authenticate Docker through a separate reviewed secret flow.
 
-- upstream project: `https://gitlab.com/openconnect/ocserv`
-- upstream website/download page: `https://ocserv.gitlab.io/www/download.html`
+## ocserv release tuple
 
-Do not use third-party mirrors, repackaged archives, random installer scripts, a branch snapshot, or a URL named `latest` for production deployment.
+Resolve release artifacts only from the official ocserv project and download locations:
 
-## Values to record
+- `https://gitlab.com/openconnect/ocserv`
+- `https://ocserv.gitlab.io/www/download.html`
 
-Record these as one immutable release tuple:
+Record one immutable tuple:
 
-1. exact version string
+1. exact version
 2. exact HTTPS archive URL
 3. exact archive SHA-256
 4. exact HTTPS detached-signature URL
-5. exact HTTPS signing-key URL published by upstream
-6. full expected fingerprint for that signing key
+5. exact HTTPS signing-key URL
+6. full expected signing-key fingerprint
 
-A short key ID is not sufficient. Remove spaces only for comparison; do not truncate the fingerprint.
+The workflow verifies HTTPS, SHA-256, an isolated GnuPG import, the full fingerprint, the detached signature, and the binding of the valid signature to the expected fingerprint. It checks archive paths and links before extraction.
 
-## Verification model
+Do not use branch snapshots, `latest`, third-party installer scripts, unsigned mirrors, short key IDs, or a digest copied from the same untrusted mirror as the archive.
 
-The deployment script performs all of these checks on the target host:
+## Base image
 
-- HTTPS-only downloads with certificate validation
-- exact SHA-256 match
-- import into a temporary isolated GnuPG home
-- exact imported-key fingerprint match
-- detached-signature verification
-- binding of the valid signature to the expected fingerprint
-- archive path-safety checks before extraction
+Pass an official Debian or Ubuntu image reference with an immutable manifest digest to the workflow, for example:
 
-Both the digest and signature are required. The signature is the identity check; the digest also catches transfer mistakes and makes the requested artifact explicit.
+```text
+debian:bookworm-slim@sha256:<64-hex-digest>
+```
+
+Resolve the current digest from the official image registry immediately before deployment. Record it with the release tuple. A tag without `@sha256:` is rejected.
+
+The base digest pins the image filesystem but not future results of `apt-get update` inside a rebuild. The GHCR tag includes the ocserv source SHA, and the manifest digest pins the published output. For fully reproducible package inputs, add a reviewed Debian/Ubuntu snapshot repository and pinned package versions in a later change.
+
+## Docker Engine
+
+When Docker is absent, install Docker Engine from Docker's official APT repository. When Docker already exists, preserve it. If Compose v2 is missing, install only an available Compose plugin package; never remove or replace the existing engine implicitly.
+
+Do not use the Docker convenience script for production bootstrap.
 
 ## Release changes
 
-Upstream build systems and optional dependencies can change. The script detects Meson or Autotools from the signed source tree and refuses unknown layouts. When a new release changes build prerequisites:
+When an ocserv release changes build dependencies or build systems:
 
-1. inspect official upstream build documentation and release notes
-2. update the bundled dependency/build logic locally
-3. run local syntax and validation checks
-4. rerun preflight
-5. deploy the same pinned artifact tuple
+1. inspect official release notes and build instructions
+2. update the explicit `docker/Dockerfile`
+3. run syntax and render checks
+4. run preflight
+5. rerun the publisher with the same immutable tuple
 
-Do not add an unsigned fallback or install from the default branch to work around a release-format change.
+Never weaken signature or digest verification to work around a build failure.

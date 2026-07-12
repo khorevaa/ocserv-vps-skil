@@ -1,76 +1,87 @@
 # Troubleshooting by stage
 
-Use read-only inspection first. Never repair the production host manually; patch the bundled script and rerun.
-
-## Preflight
-
-Run:
+Use read-only inspection first:
 
 ```bash
-./scripts/preflight.sh --host root@host --target-version <version>
+./scripts/preflight.sh --host root@host --domain vpn.example.com
 ./scripts/status.sh --host root@host
 ```
 
-Block deployment when the config is unreadable, current config validation fails, `ocserv.socket` is active, the target path exists, or the active service is not explicitly understood.
+## Docker installation
 
-## Download or signature failure
+If Docker exists, the bootstrap must not replace it. Confirm:
 
-Symptoms include HTTPS errors, SHA mismatch, unknown fingerprint, or a bad detached signature.
+```bash
+docker version
+docker compose version
+systemctl status docker
+```
 
-Actions:
+When only Compose v2 is missing, install the plugin separately or extend the plugin package detection. Do not uninstall the existing engine.
 
-- re-resolve the artifact tuple from official upstream locations
-- verify that the full fingerprint, not a short ID, was copied
-- check target-host clock and CA trust
-- do not disable signature checks
+## Source verification or image build
 
-The live service is not touched at this stage.
+SHA, fingerprint, or signature failures are hard stops. Re-resolve the immutable artifact tuple from official sources.
 
-## Dependency or build failure
+For compile failure, inspect the GitHub Actions Docker build step. Common causes are a changed mandatory library, base-image package rename, or new Meson/Autotools requirement. Update only `docker/Dockerfile` and retry the same tuple.
 
-The live service is still unchanged. Inspect the final Meson/Autotools diagnostics in the command output.
+The active container is unchanged until the exact published GHCR digest is pulled and passes config validation.
 
-Common causes:
+## GHCR pull
 
-- a new mandatory development library
-- a renamed Debian/Ubuntu package
-- an upstream Meson option or minimum Meson version change
-- insufficient memory or disk space
+Require a full `ghcr.io/...@sha256:` reference. If a fresh VPS receives `denied`, confirm the package is public. Do not pass GitHub tokens through command-line arguments. For a private package, establish Docker authentication through a separately reviewed secret mechanism.
 
-Update only `scripts/remote/deploy-release.sh`, run syntax validation, and retry the same pinned release.
-
-## Config-test failure
-
-The new release was built but rejected the existing config. The inactive target directory is removed so the same pinned deployment can be retried after the issue is understood.
-
-Do not alter production configuration inside the release transaction. Review upstream release notes and decide separately whether the config itself needs a controlled migration.
-
-## Activation failure
-
-The deployment script prints systemd status and recent journal lines, then restores the previous release or explicitly adopted service.
+## ACME
 
 Check:
 
 ```bash
-./scripts/status.sh --host root@host
+getent ahostsv4 vpn.example.com
+ss -ltnp | grep ':80 '
+certbot certificates
 ```
 
-Confirm the current symlink, service active state, running executable, TCP listener, backup path, and retained releases.
+Standalone mode requires TCP 80 to be free. Nginx preparation uses `/var/www/ocserv-acme` webroot instead. Do not stop an unrelated port-80 service without understanding it.
 
-## Service active but listener missing
+## Container startup
 
-Check the parsed `tcp-port`, binding directives, certificate/key paths, and recent journal output. A listener check failure triggers automatic rollback even when systemd briefly reports `active`.
+Check:
 
-UDP absence is reported as a warning because DTLS may be disabled; TCP is the activation gate.
+```bash
+docker compose --project-directory /opt/ocserv-vps \
+  --env-file /opt/ocserv-vps/stack.env \
+  -f /opt/ocserv-vps/compose.yaml ps
+docker logs --tail 100 ocserv-vps
+docker inspect ocserv-vps
+```
 
-## `occtl` unavailable
+Confirm `/dev/net/tun`, `NET_ADMIN`, the config and certificate mounts, and that the running image ID matches the state file.
 
-The control socket may be disabled, moved, or inaccessible. `occtl` output is supplemental; activation still requires systemd, executable-path, and TCP-listener checks.
+## Listener or client failure
 
-## Rollback target rejects config
+Check both protocols:
 
-The rollback script refuses to stop the live service. Select a different retained release or perform a separate reviewed config migration before trying again.
+```bash
+ss -ltnp | grep ':443 '
+ss -lunp | grep ':443 '
+iptables -S OCSERV_VPS_INPUT
+iptables -S OCSERV_VPS_FORWARD
+iptables -t nat -S OCSERV_VPS_NAT
+sysctl net.ipv4.ip_forward
+```
 
-## Recovering from an interrupted SSH session
+TCP without UDP means clients fall back from DTLS and performance suffers. A working listener with no internet access usually indicates forwarding, public-interface, or NAT mismatch.
 
-Reconnect over independent SSH and run `status.sh`. The remote operation lock is tied to the running process; do not start a competing deployment while the original process is still active. Inspect `/opt/ocserv/current`, `ocserv-release.service`, the state file, and the newest root-only backup before deciding whether to rerun deployment or explicit rollback.
+## Firewall lockout
+
+Keep the original SSH session open during bootstrap. The managed input chain allows only the configured SSH port, HTTP/ACME, VPN TCP/UDP, ICMP, loopback, and established traffic.
+
+If preflight found a nonstandard SSH port, pass the same value to `--ssh-port`. Do not guess.
+
+Bootstrap snapshots iptables/ip6tables before applying its chains and restores them when bootstrap fails. The snapshot path is printed in operation output and stored under `/var/backups/ocserv-vps`.
+
+## Upgrade or rollback failure
+
+The script rewrites `stack.env` to the previous image and reruns Compose. Confirm state, expected image ID, TCP/UDP listeners, and container logs with `status.sh`.
+
+Do not delete retained images or pulled-image metadata until a separate verified backup exists.

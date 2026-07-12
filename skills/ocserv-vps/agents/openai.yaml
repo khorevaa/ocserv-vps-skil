@@ -1,7 +1,7 @@
 interface:
-  display_name: "ocserv VPS releases"
-  short_description: "Safe ocserv release deploys and rollbacks"
-  default_prompt: "Use $ocserv-vps to inspect a Debian or Ubuntu VPS and deploy a version-pinned, signed ocserv release with validation and automatic rollback."
+  display_name: "ocserv VPS bootstrap"
+  short_description: "Build and operate a Dockerized ocserv VPS"
+  default_prompt: "Use $ocserv-vps to publish a verified ocserv image to GHCR and bootstrap or maintain a complete Dockerized ocserv VPN on Debian or Ubuntu with ACME, firewall/NAT, health checks, and rollback."
 
 policy:
   allow_implicit_invocation: false

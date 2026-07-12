@@ -3,240 +3,83 @@ set -euo pipefail
 IFS=$'\n\t'
 umask 027
 
-OCSERV_ROOT="/opt/ocserv"
-OCSERV_RELEASES_DIR="${OCSERV_ROOT}/releases"
-OCSERV_CURRENT_LINK="${OCSERV_ROOT}/current"
-OCSERV_STATE_DIR="/var/lib/ocserv-release"
-OCSERV_STATE_FILE="${OCSERV_STATE_DIR}/state"
-OCSERV_BACKUP_ROOT="/var/backups/ocserv-release"
-OCSERV_SERVICE="ocserv-release.service"
-OCSERV_UNIT="/etc/systemd/system/${OCSERV_SERVICE}"
-OCSERV_LOCK="/run/lock/ocserv-release.lock"
+OCSERV_STACK_ROOT="/opt/ocserv-vps"
+OCSERV_CONFIG_DIR="${OCSERV_STACK_ROOT}/config"
+OCSERV_COMPOSE_FILE="${OCSERV_STACK_ROOT}/compose.yaml"
+OCSERV_ENV_FILE="${OCSERV_STACK_ROOT}/stack.env"
+OCSERV_STATE_FILE="${OCSERV_STACK_ROOT}/state"
+OCSERV_IMAGE_ROOT="${OCSERV_STACK_ROOT}/images"
+OCSERV_BIN_DIR="${OCSERV_STACK_ROOT}/bin"
+OCSERV_BACKUP_ROOT="/var/backups/ocserv-vps"
+OCSERV_LOCK="/run/lock/ocserv-vps.lock"
+OCSERV_CONTAINER="ocserv-vps"
+OCSERV_NETWORK_SCRIPT="${OCSERV_BIN_DIR}/apply-network.sh"
+OCSERV_NETWORK_SERVICE="/etc/systemd/system/ocserv-vps-network.service"
 
-info() {
-  printf '[ocserv-release] %s\n' "$*"
-}
-
-warn() {
-  printf '[ocserv-release] WARNING: %s\n' "$*" >&2
-}
-
-die() {
-  printf '[ocserv-release] ERROR: %s\n' "$*" >&2
-  exit 1
-}
-
-require_root() {
-  [[ "${EUID}" -eq 0 ]] || die 'Run the remote script as root.'
-}
-
-require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
-}
+info() { printf '[ocserv-vps] %s\n' "$*"; }
+warn() { printf '[ocserv-vps] WARNING: %s\n' "$*" >&2; }
+die() { printf '[ocserv-vps] ERROR: %s\n' "$*" >&2; exit 1; }
+require_root() { [[ "${EUID}" -eq 0 ]] || die 'Run the remote script as root.'; }
+require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
 
 validate_version() {
   [[ "$1" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] || die "Unsafe version value: $1"
 }
 
-validate_sha256() {
-  [[ "$1" =~ ^[0-9A-Fa-f]{64}$ ]] || die 'SHA-256 must contain exactly 64 hexadecimal characters.'
+validate_domain() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ && "$1" == *.* ]] || die "Invalid public domain: $1"
 }
 
-validate_https_url() {
-  local label="$1"
-  local value="$2"
-  [[ "${value}" == https://* ]] || die "${label} must use HTTPS."
-  [[ "${value}" != *$'\n'* && "${value}" != *$'\r'* && "${value}" != *[[:space:]]* ]] || die "${label} contains whitespace."
+validate_username() {
+  [[ "$1" =~ ^[A-Za-z0-9_.@-]{1,64}$ ]] || die "Unsafe username: $1"
 }
 
-validate_config_path() {
-  local value="$1"
-  [[ "${value}" == /* ]] || die 'Config path must be absolute.'
-  [[ "${value}" =~ ^/[0-9A-Za-z_./-]+$ ]] || die "Unsafe config path: ${value}"
+validate_port() {
+  local label="$1" value="$2"
+  [[ "${value}" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )) || die "Invalid ${label}: ${value}"
 }
 
-config_backup_scope() {
-  local config="$1"
-  if [[ "${config}" == /etc/ocserv/* ]]; then
-    printf '%s\n' '/etc/ocserv'
-  else
-    printf '%s\n' "${config}"
-  fi
+validate_registry_image() {
+  [[ "$1" =~ ^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9A-Fa-f]{64}$ ]] || \
+    die 'Image must be an immutable ghcr.io/<owner>/<image>[:tag]@sha256:<64-hex> reference.'
 }
 
-validate_service_name() {
-  [[ "$1" =~ ^[0-9A-Za-z_.@-]+\.service$ ]] || die "Unsafe systemd service name: $1"
+validate_ipv4_cidr() {
+  require_command python3
+  python3 - "$1" <<'PY'
+import ipaddress
+import sys
+network = ipaddress.ip_network(sys.argv[1], strict=True)
+if network.version != 4 or network.prefixlen < 8:
+    raise SystemExit(1)
+PY
 }
 
-normalize_fingerprint() {
-  printf '%s' "$1" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]'
-}
-
-service_exists() {
-  systemctl cat "$1" >/dev/null 2>&1
-}
-
-service_active() {
-  systemctl is-active --quiet "$1"
-}
-
-service_enabled() {
-  systemctl is-enabled --quiet "$1"
-}
-
-bool_service_active() {
-  if service_exists "$1" && service_active "$1"; then printf '1'; else printf '0'; fi
-}
-
-bool_service_enabled() {
-  if service_exists "$1" && service_enabled "$1"; then printf '1'; else printf '0'; fi
-}
-
-config_value() {
-  local config="$1"
-  local wanted="$2"
-  awk -v wanted="${wanted}" '
-    /^[[:space:]]*#/ { next }
-    {
-      line=$0
-      eq=index(line, "=")
-      if (eq == 0) next
-      key=substr(line, 1, eq-1)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-      if (key != wanted) next
-      value=substr(line, eq+1)
-      sub(/[[:space:]]+#.*$/, "", value)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
-        value=substr(value, 2, length(value)-2)
-      }
-      result=value
-    }
-    END { if (result != "") print result }
-  ' "${config}"
-}
-
-find_release_ocserv() {
-  local release="$1"
-  local candidate
-  for candidate in \
-    "${release}/sbin/ocserv" \
-    "${release}/usr/sbin/ocserv" \
-    "${release}/bin/ocserv"; do
-    if [[ -x "${candidate}" ]]; then
-      printf '%s\n' "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-find_release_occtl() {
-  local release="$1"
-  local candidate
-  for candidate in \
-    "${release}/bin/occtl" \
-    "${release}/usr/bin/occtl" \
-    "${release}/sbin/occtl"; do
-    if [[ -x "${candidate}" ]]; then
-      printf '%s\n' "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-binary_version_line() {
-  local binary="$1"
-  "${binary}" --version 2>&1 | sed -n '1p'
-}
-
-run_bounded() {
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 5s "$@"
-  else
-    "$@"
-  fi
-}
-
-test_ocserv_config() {
-  local binary="$1"
-  local config="$2"
-  local help_text
-  help_text="$("${binary}" --help 2>&1 || true)"
-  if grep -q -- '--test-config' <<<"${help_text}"; then
-    (cd / && "${binary}" --test-config --config="${config}")
-    return
-  fi
-  if grep -Eq '(^|[[:space:],])-t([[:space:],]|$)' <<<"${help_text}"; then
-    (cd / && "${binary}" -t -c "${config}")
-    return
-  fi
-  printf 'The binary %s does not advertise a config-test option. Extend the skill before activation.\n' "${binary}" >&2
-  return 2
-}
-
-listener_exists() {
-  local protocol="$1"
-  local port="$2"
-  local ss_flag
-  case "${protocol}" in
-    tcp) ss_flag='-ltn' ;;
-    udp) ss_flag='-lun' ;;
-    *) return 2 ;;
-  esac
-  ss -H "${ss_flag}" | awk -v wanted="${port}" '
-    {
-      endpoint=$4
-      gsub(/\[/, "", endpoint)
-      gsub(/\]/, "", endpoint)
-      count=split(endpoint, parts, ":")
-      if (parts[count] == wanted) found=1
-    }
-    END { exit(found ? 0 : 1) }
-  '
-}
-
-configured_tcp_port() {
-  local config="$1"
-  local port
-  port="$(config_value "${config}" tcp-port || true)"
-  [[ -n "${port}" ]] || port='443'
-  printf '%s\n' "${port}"
-}
-
-configured_udp_port() {
-  local config="$1"
-  local port
-  port="$(config_value "${config}" udp-port || true)"
-  if [[ -z "${port}" ]]; then
-    port="$(configured_tcp_port "${config}")"
-  fi
-  printf '%s\n' "${port}"
+validate_interface() {
+  [[ "$1" =~ ^[A-Za-z0-9_.:-]{1,32}$ ]] || die "Unsafe interface name: $1"
 }
 
 state_get() {
   local key="$1"
   [[ -f "${OCSERV_STATE_FILE}" ]] || return 0
-  awk -F= -v wanted="${key}" '$1 == wanted { value=substr($0, index($0, "=")+1) } END { print value }' "${OCSERV_STATE_FILE}"
+  awk -F= -v wanted="${key}" '$1 == wanted {print substr($0, index($0, "=") + 1)}' "${OCSERV_STATE_FILE}" | tail -n 1
 }
 
 write_state() {
-  local current_version="$1"
-  local previous_version="$2"
-  local legacy_service="$3"
-  local legacy_was_active="$4"
-  local legacy_was_enabled="$5"
-  local last_backup="$6"
+  local current_version="$1" current_image="$2" previous_version="$3" previous_image="$4"
+  local domain="$5" vpn_network="$6" vpn_port="$7" source_sha256="$8" last_backup="$9"
   local temp
-  install -d -m 0750 "${OCSERV_STATE_DIR}"
-  temp="$(mktemp "${OCSERV_STATE_DIR}/state.XXXXXX")"
+  install -d -m 0750 "${OCSERV_STACK_ROOT}"
+  temp="$(mktemp "${OCSERV_STACK_ROOT}/state.XXXXXX")"
   cat > "${temp}" <<EOF
 current_version=${current_version}
+current_image=${current_image}
 previous_version=${previous_version}
-legacy_service=${legacy_service}
-legacy_was_active=${legacy_was_active}
-legacy_was_enabled=${legacy_was_enabled}
+previous_image=${previous_image}
+domain=${domain}
+vpn_network=${vpn_network}
+vpn_port=${vpn_port}
+source_sha256=${source_sha256}
 last_backup=${last_backup}
 updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
@@ -244,71 +87,305 @@ EOF
   mv -f "${temp}" "${OCSERV_STATE_FILE}"
 }
 
-version_from_release_path() {
-  local path="$1"
-  if [[ "${path}" == "${OCSERV_RELEASES_DIR}/"* ]]; then
-    basename "${path}"
+write_stack_env() {
+  local temp
+  temp="$(mktemp "${OCSERV_STACK_ROOT}/stack.env.XXXXXX")"
+  printf 'OCSERV_IMAGE=%s\n' "$1" > "${temp}"
+  chmod 0640 "${temp}"
+  mv -f "${temp}" "${OCSERV_ENV_FILE}"
+}
+
+compose() {
+  docker compose --project-directory "${OCSERV_STACK_ROOT}" --env-file "${OCSERV_ENV_FILE}" -f "${OCSERV_COMPOSE_FILE}" "$@"
+}
+
+render_compose_file() {
+  install -d -m 0750 "${OCSERV_STACK_ROOT}"
+  cat > "${OCSERV_COMPOSE_FILE}" <<'EOF'
+services:
+  ocserv:
+    image: ${OCSERV_IMAGE}
+    container_name: ocserv-vps
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./config:/etc/ocserv:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    tmpfs:
+      - /run/ocserv:mode=0750
+    restart: unless-stopped
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "/usr/local/sbin/ocserv", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+EOF
+  chmod 0640 "${OCSERV_COMPOSE_FILE}"
+}
+
+install_docker_engine() {
+  if command -v docker >/dev/null 2>&1; then
+    systemctl enable --now docker >/dev/null 2>&1 || true
+    if docker compose version >/dev/null 2>&1; then
+      info 'Existing Docker Engine and Compose v2 detected; installation skipped.'
+      return 0
+    fi
+    info 'Existing Docker Engine detected; installing only the missing Compose v2 plugin.'
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+      apt-get install -y --no-install-recommends docker-compose-plugin
+    elif apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+      apt-get install -y --no-install-recommends docker-compose-v2
+    else
+      die 'Docker exists but Compose v2 is missing and no plugin package is available. Install Compose v2 without replacing Docker, then rerun.'
+    fi
+    docker compose version >/dev/null 2>&1 || die 'Compose v2 is still unavailable.'
+    return 0
+  fi
+
+  [[ -r /etc/os-release ]] || die '/etc/os-release is unavailable.'
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  case "${ID:-}" in debian|ubuntu) ;; *) die "Unsupported Docker host: ${ID:-unknown}" ;; esac
+  [[ -n "${VERSION_CODENAME:-}" ]] || die 'VERSION_CODENAME is missing.'
+
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y --no-install-recommends ca-certificates curl gnupg
+  local conflicting=() package
+  for package in docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc; do
+    if dpkg-query -W -f='${Status}' "${package}" 2>/dev/null | grep -q 'install ok installed'; then conflicting+=("${package}"); fi
+  done
+  if (( ${#conflicting[@]} > 0 )); then
+    info "Removing packages that conflict with a new Docker Engine installation: ${conflicting[*]}"
+    apt-get remove -y "${conflicting[@]}"
+  fi
+  install -d -m 0755 /etc/apt/keyrings
+  curl --proto '=https' --tlsv1.2 --fail --location "https://download.docker.com/linux/${ID}/gpg" --output /etc/apt/keyrings/docker.asc
+  chmod 0644 /etc/apt/keyrings/docker.asc
+  cat > /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/${ID}
+Suites: ${VERSION_CODENAME}
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+  apt-get update
+  apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker
+  docker version >/dev/null
+  docker compose version >/dev/null
+}
+
+pull_verified_image() {
+  local image="$1" expected_version="$2"
+  validate_registry_image "${image}"
+  validate_version "${expected_version}"
+  docker pull "${image}"
+  local actual_version source_sha base_image image_id short_sha metadata_dir
+  actual_version="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${image}")"
+  source_sha="$(docker image inspect --format '{{ index .Config.Labels "org.ocserv-vps.source-sha256" }}' "${image}")"
+  base_image="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.base.name" }}' "${image}")"
+  image_id="$(docker image inspect --format '{{.Id}}' "${image}")"
+  [[ "${actual_version}" == "${expected_version}" ]] || die "Image version label is ${actual_version}; expected ${expected_version}."
+  [[ "${source_sha}" =~ ^[0-9a-f]{64}$ ]] || die 'Image has no valid source SHA-256 label.'
+  [[ "${base_image}" =~ @sha256:[0-9A-Fa-f]{64}$ ]] || die 'Image has no immutable base-image label.'
+  short_sha="${source_sha:0:12}"
+  metadata_dir="${OCSERV_IMAGE_ROOT}/${expected_version}-${short_sha}"
+  install -d -m 0750 "${metadata_dir}"
+  cat > "${metadata_dir}/metadata" <<EOF
+version=${actual_version}
+image=${image}
+image_id=${image_id}
+source_sha256=${source_sha}
+base_image=${base_image}
+pulled_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+  chmod 0640 "${metadata_dir}/metadata"
+  RESOLVED_IMAGE="${image}"
+  RESOLVED_SOURCE_SHA="${source_sha}"
+  info "Pulled verified GHCR image ${image}."
+}
+
+test_image_config() {
+  local image="$1" help_text
+  help_text="$(docker run --rm --entrypoint /usr/local/sbin/ocserv "${image}" --help 2>&1 || true)"
+  local -a mounts=(-v "${OCSERV_CONFIG_DIR}:/etc/ocserv:ro" -v "/etc/letsencrypt:/etc/letsencrypt:ro")
+  if grep -q -- '--test-config' <<<"${help_text}"; then
+    docker run --rm --network none --entrypoint /usr/local/sbin/ocserv "${mounts[@]}" "${image}" --test-config --config=/etc/ocserv/ocserv.conf
+  elif grep -Eq '(^|[[:space:],])-t([[:space:],]|$)' <<<"${help_text}"; then
+    docker run --rm --network none --entrypoint /usr/local/sbin/ocserv "${mounts[@]}" "${image}" -t -c /etc/ocserv/ocserv.conf
+  else
+    die "Image ${image} does not advertise a config-test option."
   fi
 }
 
-atomic_current_link() {
-  local release="$1"
-  install -d -m 0755 "${OCSERV_ROOT}"
-  local temp="${OCSERV_ROOT}/.current.$$.new"
-  ln -s "${release}" "${temp}"
-  mv -Tf "${temp}" "${OCSERV_CURRENT_LINK}"
+listener_exists() {
+  local protocol="$1" port="$2" flag
+  case "${protocol}" in tcp) flag='-ltn' ;; udp) flag='-lun' ;; *) return 2 ;; esac
+  ss -H "${flag}" | awk -v wanted="${port}" '{endpoint=$4; gsub(/\[/,"",endpoint); gsub(/\]/,"",endpoint); n=split(endpoint,p,":"); if (p[n] == wanted) found=1} END {exit(found ? 0 : 1)}'
 }
 
-health_check_release() {
-  local service="$1"
-  local expected_binary="$2"
-  local config="$3"
-  local timeout_seconds="$4"
-  local tcp_port udp_port deadline pid actual_binary
-
-  tcp_port="$(configured_tcp_port "${config}")"
-  udp_port="$(configured_udp_port "${config}")"
-  [[ "${tcp_port}" =~ ^[0-9]+$ ]] || die "Invalid tcp-port in ${config}: ${tcp_port}"
-  [[ "${udp_port}" =~ ^[0-9]+$ ]] || die "Invalid udp-port in ${config}: ${udp_port}"
-
+health_check_stack() {
+  local expected_image="$1" vpn_port="$2" timeout_seconds="$3"
+  local expected_id actual_id deadline
+  expected_id="$(docker image inspect --format '{{.Id}}' "${expected_image}")"
   deadline=$((SECONDS + timeout_seconds))
   while (( SECONDS < deadline )); do
-    if service_active "${service}"; then
-      pid="$(systemctl show --property MainPID --value "${service}" 2>/dev/null || true)"
-      if [[ "${pid}" =~ ^[1-9][0-9]*$ && -e "/proc/${pid}/exe" ]]; then
-        actual_binary="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
-        if [[ "${actual_binary}" == "$(readlink -f "${expected_binary}")" ]]; then
-          if [[ "${tcp_port}" == '0' ]] || listener_exists tcp "${tcp_port}"; then
-            info "Health check passed: service active, executable matched, TCP port ${tcp_port} listening."
-            if [[ "${udp_port}" != '0' ]] && ! listener_exists udp "${udp_port}"; then
-              warn "UDP port ${udp_port} is not listening; DTLS may be disabled or still initializing."
-            fi
-            local release_root occtl
-            release_root="$(dirname "$(dirname "${expected_binary}")")"
-            if occtl="$(find_release_occtl "${release_root}" 2>/dev/null)"; then
-              run_bounded "${occtl}" show status 2>/dev/null | sed -n '1,30p' || warn 'occtl status was unavailable; listener checks still passed.'
-            fi
-            return 0
-          fi
-        fi
+    if [[ "$(docker inspect --format '{{.State.Running}}' "${OCSERV_CONTAINER}" 2>/dev/null || true)" == "true" ]]; then
+      actual_id="$(docker inspect --format '{{.Image}}' "${OCSERV_CONTAINER}" 2>/dev/null || true)"
+      if [[ "${actual_id}" == "${expected_id}" ]] && listener_exists tcp "${vpn_port}" && listener_exists udp "${vpn_port}" && \
+        docker exec "${OCSERV_CONTAINER}" /usr/local/sbin/ocserv --version >/dev/null 2>&1; then
+        info "Health check passed for ${expected_image}: TCP and UDP ${vpn_port} are listening."
+        return 0
       fi
     fi
     sleep 1
   done
-
-  warn "Health check failed for ${service}."
-  systemctl --no-pager --full status "${service}" 2>&1 | sed -n '1,80p' >&2 || true
-  journalctl --no-pager -u "${service}" -n 60 2>&1 >&2 || true
+  warn "Health check failed for ${expected_image}."
+  docker inspect "${OCSERV_CONTAINER}" 2>/dev/null | sed -n '1,120p' >&2 || true
+  docker logs --tail 100 "${OCSERV_CONTAINER}" 2>&1 >&2 || true
   return 1
 }
 
-print_listener_summary() {
-  local config="$1"
-  local tcp_port udp_port
-  tcp_port="$(configured_tcp_port "${config}" 2>/dev/null || true)"
-  udp_port="$(configured_udp_port "${config}" 2>/dev/null || true)"
-  printf 'Configured TCP port: %s; listening: ' "${tcp_port:-unknown}"
-  if [[ "${tcp_port}" =~ ^[0-9]+$ ]] && listener_exists tcp "${tcp_port}"; then printf 'yes\n'; else printf 'no\n'; fi
-  printf 'Configured UDP port: %s; listening: ' "${udp_port:-unknown}"
-  if [[ "${udp_port}" =~ ^[0-9]+$ ]] && listener_exists udp "${udp_port}"; then printf 'yes\n'; else printf 'no\n'; fi
+render_ocserv_config() {
+  local domain="$1" vpn_network="$2" vpn_port="$3" dns_primary="$4" dns_secondary="$5"
+  install -d -m 0750 "${OCSERV_CONFIG_DIR}"
+  cat > "${OCSERV_CONFIG_DIR}/ocserv.conf" <<EOF
+auth = "plain[passwd=/etc/ocserv/ocpasswd]"
+tcp-port = ${vpn_port}
+udp-port = ${vpn_port}
+listen-host = 0.0.0.0
+run-as-user = ocserv
+run-as-group = ocserv
+socket-file = /run/ocserv/ocserv.sock
+occtl-socket-file = /run/ocserv/occtl.sock
+server-cert = /etc/letsencrypt/live/${domain}/fullchain.pem
+server-key = /etc/letsencrypt/live/${domain}/privkey.pem
+isolate-workers = true
+max-clients = 64
+max-same-clients = 4
+rate-limit-ms = 100
+keepalive = 300
+dpd = 60
+mobile-dpd = 300
+try-mtu-discovery = true
+compression = false
+auth-timeout = 240
+min-reauth-time = 300
+max-ban-score = 80
+ban-reset-time = 300
+cookie-timeout = 86400
+deny-roaming = false
+rekey-time = 172800
+rekey-method = ssl
+use-occtl = true
+device = vpns
+predictable-ips = true
+ipv4-network = ${vpn_network}
+dns = ${dns_primary}
+dns = ${dns_secondary}
+route = default
+tunnel-all-dns = true
+cisco-client-compat = true
+EOF
+  chmod 0640 "${OCSERV_CONFIG_DIR}/ocserv.conf"
+}
+
+create_password_user() {
+  local image="$1" username="$2" password
+  validate_username "${username}"
+  password="$(openssl rand -hex 16)"
+  install -d -m 0750 "${OCSERV_CONFIG_DIR}"
+  touch "${OCSERV_CONFIG_DIR}/ocpasswd"
+  chmod 0600 "${OCSERV_CONFIG_DIR}/ocpasswd"
+  printf '%s\n%s\n' "${password}" "${password}" | docker run --rm -i --entrypoint /usr/local/bin/ocpasswd \
+    -v "${OCSERV_CONFIG_DIR}:/etc/ocserv" "${image}" -c /etc/ocserv/ocpasswd "${username}"
+  chmod 0600 "${OCSERV_CONFIG_DIR}/ocpasswd"
+  GENERATED_VPN_PASSWORD="${password}"
+}
+
+render_network_assets() {
+  local vpn_network="$1" vpn_port="$2" ssh_port="$3" public_interface="$4"
+  validate_interface "${public_interface}"
+  install -d -m 0750 "${OCSERV_BIN_DIR}"
+  cat > "${OCSERV_NETWORK_SCRIPT}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+VPN_NETWORK='${vpn_network}'
+VPN_PORT='${vpn_port}'
+SSH_PORT='${ssh_port}'
+PUBLIC_INTERFACE='${public_interface}'
+iptables -w -N OCSERV_VPS_INPUT 2>/dev/null || true
+iptables -w -F OCSERV_VPS_INPUT
+iptables -w -A OCSERV_VPS_INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -i lo -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -p tcp --dport "\${SSH_PORT}" -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -p tcp --dport 80 -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -p tcp --dport "\${VPN_PORT}" -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -p udp --dport "\${VPN_PORT}" -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -p icmp -j ACCEPT
+iptables -w -A OCSERV_VPS_INPUT -j DROP
+iptables -w -C INPUT -j OCSERV_VPS_INPUT 2>/dev/null || iptables -w -I INPUT 1 -j OCSERV_VPS_INPUT
+iptables -w -N OCSERV_VPS_FORWARD 2>/dev/null || true
+iptables -w -F OCSERV_VPS_FORWARD
+iptables -w -A OCSERV_VPS_FORWARD -s "\${VPN_NETWORK}" -o "\${PUBLIC_INTERFACE}" -j ACCEPT
+iptables -w -A OCSERV_VPS_FORWARD -d "\${VPN_NETWORK}" -i "\${PUBLIC_INTERFACE}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -w -A OCSERV_VPS_FORWARD -j RETURN
+iptables -w -C FORWARD -j OCSERV_VPS_FORWARD 2>/dev/null || iptables -w -I FORWARD 1 -j OCSERV_VPS_FORWARD
+iptables -w -t nat -N OCSERV_VPS_NAT 2>/dev/null || true
+iptables -w -t nat -F OCSERV_VPS_NAT
+iptables -w -t nat -A OCSERV_VPS_NAT -s "\${VPN_NETWORK}" -o "\${PUBLIC_INTERFACE}" -j MASQUERADE
+iptables -w -t nat -A OCSERV_VPS_NAT -j RETURN
+iptables -w -t nat -C POSTROUTING -j OCSERV_VPS_NAT 2>/dev/null || iptables -w -t nat -I POSTROUTING 1 -j OCSERV_VPS_NAT
+if command -v ip6tables >/dev/null 2>&1; then
+  ip6tables -w -N OCSERV_VPS_INPUT 2>/dev/null || true
+  ip6tables -w -F OCSERV_VPS_INPUT
+  ip6tables -w -A OCSERV_VPS_INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  ip6tables -w -A OCSERV_VPS_INPUT -i lo -j ACCEPT
+  ip6tables -w -A OCSERV_VPS_INPUT -p tcp --dport "\${SSH_PORT}" -j ACCEPT
+  ip6tables -w -A OCSERV_VPS_INPUT -p tcp --dport 80 -j ACCEPT
+  ip6tables -w -A OCSERV_VPS_INPUT -p ipv6-icmp -j ACCEPT
+  ip6tables -w -A OCSERV_VPS_INPUT -j DROP
+  ip6tables -w -C INPUT -j OCSERV_VPS_INPUT 2>/dev/null || ip6tables -w -I INPUT 1 -j OCSERV_VPS_INPUT
+fi
+EOF
+  chmod 0750 "${OCSERV_NETWORK_SCRIPT}"
+  cat > /etc/sysctl.d/99-ocserv-vps.conf <<'EOF'
+net.ipv4.ip_forward = 1
+EOF
+  cat > "${OCSERV_NETWORK_SERVICE}" <<EOF
+[Unit]
+Description=ocserv VPS forwarding, NAT and ingress firewall
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+[Service]
+Type=oneshot
+ExecStart=${OCSERV_NETWORK_SCRIPT}
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 "${OCSERV_NETWORK_SERVICE}"
+  systemctl daemon-reload
+  sysctl --system >/dev/null
+  systemctl enable --now ocserv-vps-network.service
+}
+
+create_stack_backup() {
+  local label="$1" timestamp backup path
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="${OCSERV_BACKUP_ROOT}/${timestamp}-${label}"
+  install -d -m 0700 "${backup}"
+  for path in "${OCSERV_ENV_FILE}" "${OCSERV_STATE_FILE}" "${OCSERV_COMPOSE_FILE}"; do [[ ! -f "${path}" ]] || cp -a "${path}" "${backup}/"; done
+  [[ ! -d "${OCSERV_CONFIG_DIR}" ]] || tar -C "${OCSERV_STACK_ROOT}" -cpf "${backup}/config.tar" config
+  LAST_BACKUP="${backup}"
 }

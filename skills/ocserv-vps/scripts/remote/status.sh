@@ -1,100 +1,68 @@
 #!/usr/bin/env bash
 
-usage() {
-  cat <<'EOF'
-Usage: remote-status.sh [--config <path>]
-EOF
-}
-
-CONFIG="/etc/ocserv/ocserv.conf"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --config) CONFIG="${2:-}"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) printf '%s\n' 'Usage: remote-status.sh'; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
 
 require_root
-validate_config_path "${CONFIG}"
-require_command systemctl
-require_command ss
 
-printf '%s\n' '=== Managed service ==='
-if service_exists "${OCSERV_SERVICE}"; then
-  printf 'Unit: %s\n' "${OCSERV_SERVICE}"
-  printf 'Active: %s\n' "$(bool_service_active "${OCSERV_SERVICE}")"
-  printf 'Enabled: %s\n' "$(bool_service_enabled "${OCSERV_SERVICE}")"
-  main_pid="$(systemctl show --property MainPID --value "${OCSERV_SERVICE}" 2>/dev/null || true)"
-  printf 'Main PID: %s\n' "${main_pid:-none}"
-  if [[ "${main_pid}" =~ ^[1-9][0-9]*$ && -e "/proc/${main_pid}/exe" ]]; then
-    printf 'Running executable: %s\n' "$(readlink -f "/proc/${main_pid}/exe" 2>/dev/null || true)"
-  fi
-else
-  printf '%s\n' 'Managed unit is not installed.'
-fi
-
-printf '\n%s\n' '=== Release links and versions ==='
-current_target="$(readlink -f "${OCSERV_CURRENT_LINK}" 2>/dev/null || true)"
-printf 'Current target: %s\n' "${current_target:-none}"
-if [[ -n "${current_target}" ]]; then
-  binary="$(find_release_ocserv "${current_target}" 2>/dev/null || true)"
-  if [[ -n "${binary}" ]]; then
-    printf 'Current binary: %s\n' "${binary}"
-    printf 'Current version output: %s\n' "$(binary_version_line "${binary}" || true)"
-    if [[ -r "${CONFIG}" ]]; then
-      status_config_output=''
-      if status_config_output="$(test_ocserv_config "${binary}" "${CONFIG}" 2>&1)"; then
-        printf '%s\n' 'Config validation: passed'
-      else
-        printf '%s\n' 'Config validation: FAILED'
-        printf '%s\n' "${status_config_output}" | sed -n '1,80p'
-      fi
-    fi
-  else
-    printf '%s\n' 'Current target has no ocserv binary.'
-  fi
-fi
-
-printf 'Retained releases:\n'
-if [[ -d "${OCSERV_RELEASES_DIR}" ]]; then
-  find "${OCSERV_RELEASES_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' | sort -V
-else
-  printf '%s\n' '  none'
-fi
-
-printf '\n%s\n' '=== Listeners and control status ==='
-if [[ -r "${CONFIG}" ]]; then
-  print_listener_summary "${CONFIG}"
-else
-  printf 'Config is not readable: %s\n' "${CONFIG}"
-fi
-if [[ -n "${current_target}" ]]; then
-  occtl="$(find_release_occtl "${current_target}" 2>/dev/null || true)"
-  if [[ -n "${occtl}" ]]; then
-    run_bounded "${occtl}" show status 2>/dev/null | sed -n '1,40p' || printf '%s\n' 'occtl status unavailable.'
-  fi
-fi
-
-printf '\n%s\n' '=== State ==='
+printf '%s\n' '=== Managed state ==='
 if [[ -f "${OCSERV_STATE_FILE}" ]]; then
-  sed -n '1,80p' "${OCSERV_STATE_FILE}"
+  sed -n '1,100p' "${OCSERV_STATE_FILE}"
 else
-  printf '%s\n' 'No managed state file.'
+  printf '%s\n' 'No managed state. Run bootstrap-vps.sh.'
+  exit 1
 fi
 
-printf '\n%s\n' '=== Backups ==='
-if [[ -d "${OCSERV_BACKUP_ROOT}" ]]; then
-  find "${OCSERV_BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' | sort -r | sed -n '1,10p'
+CURRENT_IMAGE="$(state_get current_image)"
+VPN_PORT="$(state_get vpn_port)"
+DOMAIN="$(state_get domain)"
+
+printf '\n%s\n' '=== Docker stack ==='
+if command -v docker >/dev/null 2>&1; then
+  docker --version
+  docker compose version
+  compose ps 2>/dev/null || true
+  docker inspect --format 'running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} image={{.Config.Image}} image_id={{.Image}}' "${OCSERV_CONTAINER}" 2>/dev/null || true
+  printf 'Expected image ID: %s\n' "$(docker image inspect --format '{{.Id}}' "${CURRENT_IMAGE}" 2>/dev/null || printf missing)"
+  docker exec "${OCSERV_CONTAINER}" /usr/local/sbin/ocserv --version 2>/dev/null | sed -n '1,3p' || true
+  docker exec "${OCSERV_CONTAINER}" /usr/local/sbin/ocserv --test-config --config=/etc/ocserv/ocserv.conf 2>&1 | sed -n '1,30p' || true
 else
-  printf '%s\n' '  none'
+  printf '%s\n' 'Docker is missing.'
 fi
 
-printf '\n%s\n' '=== Legacy service ==='
-legacy_service="$(state_get legacy_service || true)"
-if [[ -n "${legacy_service}" ]]; then
-  printf 'Recorded legacy service: %s\n' "${legacy_service}"
-  printf 'Current active=%s enabled=%s\n' "$(bool_service_active "${legacy_service}")" "$(bool_service_enabled "${legacy_service}")"
+printf '\n%s\n' '=== Listeners ==='
+printf 'TCP %s: ' "${VPN_PORT}"
+if listener_exists tcp "${VPN_PORT}"; then printf 'listening\n'; else printf 'MISSING\n'; fi
+printf 'UDP %s: ' "${VPN_PORT}"
+if listener_exists udp "${VPN_PORT}"; then printf 'listening\n'; else printf 'MISSING\n'; fi
+ss -ltnup | grep -E ":(${VPN_PORT}|80)[[:space:]]" || true
+
+printf '\n%s\n' '=== Network and firewall ==='
+printf 'IPv4 forwarding: %s\n' "$(sysctl -n net.ipv4.ip_forward 2>/dev/null || printf unknown)"
+systemctl --no-pager --full status ocserv-vps-network.service 2>&1 | sed -n '1,30p' || true
+iptables -w -S OCSERV_VPS_INPUT 2>/dev/null || true
+iptables -w -S OCSERV_VPS_FORWARD 2>/dev/null || true
+iptables -w -t nat -S OCSERV_VPS_NAT 2>/dev/null || true
+
+printf '\n%s\n' '=== Certificate ==='
+if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+  openssl x509 -in "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" -noout -subject -issuer -dates
 else
-  printf '%s\n' 'No legacy service recorded.'
+  printf 'Certificate missing for %s\n' "${DOMAIN}"
 fi
+
+printf '\n%s\n' '=== Users and credentials ==='
+if [[ -f "${OCSERV_CONFIG_DIR}/ocpasswd" ]]; then
+  awk -F: 'NF {print "  " $1}' "${OCSERV_CONFIG_DIR}/ocpasswd"
+else
+  printf '%s\n' '  password database missing'
+fi
+[[ ! -f /root/ocserv-vps-initial-credentials ]] || printf '%s\n' 'Initial credentials file: /root/ocserv-vps-initial-credentials (mode 0600)'
+
+printf '\n%s\n' '=== Retained images and backups ==='
+find "${OCSERV_IMAGE_ROOT}" -mindepth 2 -maxdepth 2 -name metadata -print 2>/dev/null | sort || true
+find "${OCSERV_BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' 2>/dev/null | sort -r | sed -n '1,10p' || true
