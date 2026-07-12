@@ -2,7 +2,7 @@
 
 # Dockerized ocserv для VPS
 
-Полная установка и эксплуатация ocserv VPN на чистом VPS с Debian или Ubuntu. GitHub Actions собирает явный [`docker/Dockerfile`](docker/Dockerfile) из закреплённого исходного релиза после проверки SHA-256 и GPG и публикует его в `ghcr.io/khorevaa/ocserv-vps`. Skill разворачивает только точный GHCR manifest digest, а затем настраивает сертификат, пользователей, forwarding, NAT, firewall, health checks, обновление и rollback.
+Полная установка и эксплуатация ocserv VPN на чистом VPS с Debian или Ubuntu. GitHub Actions собирает явный [`docker/Dockerfile`](docker/Dockerfile) из закреплённого исходного релиза после проверки SHA-256 и GPG и публикует его в `ghcr.io/khorevaa/ocserv-vps`. Skill разворачивает version-tag `ghcr.io/khorevaa/ocserv-vps:<version>`, а затем настраивает сертификат, пользователей, forwarding, NAT, firewall, health checks, обновление и rollback.
 
 Канонический устанавливаемый bundle находится в [`skills/ocserv-vps/`](skills/ocserv-vps/).
 
@@ -12,13 +12,14 @@
 - сохранение существующей установки Docker и установка Docker только при его отсутствии
 - установка только Compose v2 plugin, если Docker уже есть, а Compose отсутствует
 - обязательный digest базового образа вместо `latest`
-- публикация immutable version-plus-source-SHA tags в GitHub Container Registry
-- загрузка на VPS только ссылок `ghcr.io/...@sha256:`
+- публикация version tags вида `ghcr.io/khorevaa/ocserv-vps:1.5.0` в GitHub Container Registry
+- загрузка на VPS только явных version tags; `latest` не используется
 - получение сертификата Let's Encrypt
 - создание конфигурации ocserv и первого password-пользователя
 - IPv4 forwarding, ограничивающий ingress firewall, VPN forwarding и NAT
 - запуск ocserv через host networking с `/dev/net/tun`, `NET_ADMIN` и `NET_RAW`
 - проверка image ID, конфигурации и TCP/UDP listeners
+- обязательный реальный вход через OpenConnect и HTTPS-запрос через tunnel из изолированного network namespace после bootstrap, upgrade и rollback
 - добавление пользователей со сгенерированными паролями, обновление образа и rollback
 - опциональная подготовка nginx на порту 80 для ACME и будущего UI без проксирования ocserv
 
@@ -30,7 +31,7 @@ Bootstrap меняет firewall и при ошибочном SSH-порте мо
 - `/dev/net/tun`
 - публичный IPv4 и домен, направленный на VPS
 - image, опубликованный repository workflow из точного source tuple и закреплённого base image
-- публичный или заранее авторизованный доступ к `ghcr.io/...@sha256:<digest>`
+- публичный или заранее авторизованный доступ к `ghcr.io/khorevaa/ocserv-vps:<version>`
 - место для хранения минимум двух образов
 
 ## Установка в Codex
@@ -50,7 +51,7 @@ $ocserv-vps разверни полностью настроенный Dockerize
 - [Publish ocserv image](.github/workflows/publish-ocserv-image.yml): проверка source, сборка явного Dockerfile и push в GHCR
 - [`bootstrap-vps.sh`](skills/ocserv-vps/scripts/bootstrap-vps.sh): полная установка чистого VPS
 - [`preflight.sh`](skills/ocserv-vps/scripts/preflight.sh): read-only проверка хоста и stack
-- [`deploy-release.sh`](skills/ocserv-vps/scripts/deploy-release.sh): pull и активация нового verified GHCR digest
+- [`deploy-release.sh`](skills/ocserv-vps/scripts/deploy-release.sh): pull, активация и OpenConnect-проверка новой GHCR-версии
 - [`rollback-release.sh`](skills/ocserv-vps/scripts/rollback-release.sh): переход на сохранённый image с автоматическим восстановлением
 - [`status.sh`](skills/ocserv-vps/scripts/status.sh): container, certificate, listeners, network и backups
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): создание password-пользователя
@@ -63,7 +64,7 @@ Nginx — опциональная подготовка под будущий UI
 
 ## Публикация image
 
-Запустите workflow `Publish ocserv image` вручную с точной версией, source URL, SHA-256, detached signature, signing key/fingerprint и digest базового образа. Для bootstrap или upgrade используйте полный manifest digest из workflow summary. Для pull с чистого VPS без авторизации GHCR package должен быть публичным.
+Запустите workflow `Publish ocserv image` вручную с точной версией, source URL, SHA-256, detached signature, signing key/fingerprint и digest базового образа. Для bootstrap или upgrade используйте version-tag из workflow summary. Для pull с чистого VPS без авторизации GHCR package должен быть публичным.
 
 ## Лицензия
 

@@ -36,7 +36,7 @@ debian:bookworm-slim@sha256:<64-hex-digest>
 
 Resolve the current digest from the official image registry immediately before deployment. Record it with the release tuple. A tag without `@sha256:` is rejected.
 
-The base digest pins the image filesystem but not future results of `apt-get update` inside a rebuild. The GHCR tag includes the ocserv source SHA, and the manifest digest pins the published output. For fully reproducible package inputs, add a reviewed Debian/Ubuntu snapshot repository and pinned package versions in a later change.
+The base digest pins the image filesystem but not future results of `apt-get update` inside a rebuild. The GHCR tag contains only the ocserv version and can be replaced by a later workflow run for that version; the verified source SHA remains recorded in the OCI label. For fully reproducible package inputs, add a reviewed Debian/Ubuntu snapshot repository and pinned package versions in a later change.
 
 ## Docker Engine
 

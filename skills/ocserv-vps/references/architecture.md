@@ -20,7 +20,7 @@ The container receives only `NET_ADMIN`, `NET_RAW`, and `/dev/net/tun`; do not s
 ## Filesystem
 
 - `/opt/ocserv-vps/compose.yaml`: fixed Compose definition
-- `/opt/ocserv-vps/stack.env`: active immutable image tag
+- `/opt/ocserv-vps/stack.env`: active GHCR version tag
 - `/opt/ocserv-vps/state`: current and previous versions/images
 - `/opt/ocserv-vps/config/ocserv.conf`: generated configuration
 - `/opt/ocserv-vps/config/ocpasswd`: mode `0600` password database
@@ -39,10 +39,10 @@ Require two immutable inputs:
 Verify the archive in GitHub Actions before it enters the Docker build context. Build the reviewed repository-root `docker/Dockerfile` and tag the result as:
 
 ```text
-ocserv-vps:<version>-<first-12-source-sha>
+ocserv-vps:<version>
 ```
 
-Push the immutable tag to `ghcr.io/khorevaa/ocserv-vps` with SBOM and provenance. The VPS accepts only the resulting manifest digest and checks the version, source SHA, and base image OCI labels after pulling.
+Push the version tag to `ghcr.io/khorevaa/ocserv-vps` with SBOM and provenance. The VPS accepts the explicit version tag without `@sha256` and checks the version, source SHA, and base image OCI labels after pulling.
 
 The current Dockerfile deliberately favors build reliability over minimal size: it compiles ocserv from source inside the pinned base image and retains the build/runtime packages. Introduce a multi-stage runtime image only after testing the full set of dynamically loaded authentication and networking libraries.
 
@@ -72,8 +72,14 @@ Snapshot iptables/ip6tables and pre-existing managed network files before changi
 
 ### Upgrade
 
-Pull the exact GHCR digest and config-test it before changing `stack.env`. Snapshot state, activate with Compose, compare the running image ID, and require TCP plus UDP listeners. Restore the old image automatically on failure.
+Pull the exact GHCR version tag and config-test it before changing `stack.env`. Snapshot state, activate with Compose, compare the running image ID, require TCP plus UDP listeners, and pass the OpenConnect data-path probe. Restore the old image automatically on failure.
 
 ### Rollback
 
-Resolve a retained digest from pulled-image metadata, config-test it, snapshot current state, activate it, and apply the same health gates. Restore the image active at rollback start if the target fails.
+Resolve a retained image from pulled-image metadata, config-test it, snapshot current state, activate it, and apply the same health gates including OpenConnect. Restore the image active at rollback start if the target fails.
+
+## Mandatory OpenConnect probe
+
+After every successful container activation, create an isolated Linux network namespace with a veth pair. Run the host `openconnect` client inside it, map the public domain to the VPS local IPv4 with `--resolve`, and authenticate through the real TLS endpoint. A wrapper around `vpnc-script` suppresses DNS changes, so the probe does not alter host resolver state.
+
+Require `ip route get 1.1.1.1` inside the namespace to select the dedicated `ocprobe0` tunnel, then require an HTTPS response from `https://1.1.1.1/cdn-cgi/trace` through that interface. Bootstrap uses the initial user. Upgrade and rollback create a random temporary user and delete it on both success and failure. Store the successful check time as `openconnect_checked_at` in managed state.

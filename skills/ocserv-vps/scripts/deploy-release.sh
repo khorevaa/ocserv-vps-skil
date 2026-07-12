@@ -9,9 +9,9 @@ usage() {
   cat <<'EOF'
 Usage:
   deploy-release.sh --host <ssh_target> --version <version> \
-    --image <ghcr.io/owner/image@sha256:digest> --approve-restart [options]
+    --image <ghcr.io/owner/image:version> --approve-restart [options]
 
-Pull, validate, and activate a new immutable GHCR image.
+Pull, validate, and activate a version-tagged GHCR image.
 
 Options:
   --health-timeout <seconds>   Default: 45
@@ -62,6 +62,7 @@ ocserv_validate_port 'SSH port' "${SSH_PORT}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   printf 'GHCR release plan: host=%s version=%s image=%s health_timeout=%ss\n' "${HOST}" "${VERSION}" "${IMAGE}" "${HEALTH_TIMEOUT}"
+  printf '%s\n' 'Post-deploy check: mandatory OpenConnect login plus tunneled HTTPS.'
   printf '%s\n' 'No SSH connection was made.'
   exit 0
 fi

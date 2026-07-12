@@ -4,7 +4,7 @@ usage() {
   cat <<'EOF'
 Usage: remote-bootstrap-vps.sh --domain <fqdn> --acme-email <email>
   --vpn-username <name> --version <version>
-  --image <ghcr.io/owner/image@sha256:digest>
+  --image <ghcr.io/owner/image:version>
   --vpn-network <cidr> --vpn-port <port> --ssh-port <port>
   --approve-firewall --approve-restart [--prepare-nginx]
 EOF
@@ -74,7 +74,8 @@ flock -n 9 || die 'Another ocserv VPS operation is running.'
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl python3 openssl certbot iproute2 iptables
+  ca-certificates curl python3 openssl certbot iproute2 iptables \
+  openconnect vpnc-scripts
 install_docker_engine
 
 validate_ipv4_cidr "${VPN_NETWORK}" || die "Invalid VPN network: ${VPN_NETWORK}"
@@ -194,6 +195,7 @@ chmod 0750 /etc/letsencrypt/renewal-hooks/deploy/ocserv-vps-reload.sh
 test_image_config "${IMAGE}"
 compose up -d --remove-orphans
 health_check_stack "${IMAGE}" "${VPN_PORT}" 60 || die 'Initial container health check failed.'
+verify_openconnect_data_path "${DOMAIN}" "${VPN_PORT}" "${VPN_USERNAME}" "${GENERATED_VPN_PASSWORD}"
 write_state "${VERSION}" "${IMAGE}" "" "" "${DOMAIN}" "${VPN_NETWORK}" "${VPN_PORT}" \
   "${RESOLVED_SOURCE_SHA}" "${BOOTSTRAP_BACKUP}"
 

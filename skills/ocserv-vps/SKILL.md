@@ -1,11 +1,11 @@
 ---
 name: ocserv-vps
-description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN on a root-managed Debian or Ubuntu VPS. Use when Codex must publish a version-pinned ocserv image to GitHub Container Registry from a SHA-256 and GPG-verified source release, prepare a fresh VPS, install Docker only when absent, pull an immutable GHCR image digest, issue an ACME certificate, generate the ocserv configuration and first user, configure forwarding/NAT/firewall, inspect health, add users, upgrade the image, or roll back to a retained image. Optionally prepare nginx as the HTTP/ACME edge for a future UI without proxying ocserv.
+description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN on a root-managed Debian or Ubuntu VPS. Use when Codex must publish a version-tagged ocserv image to GitHub Container Registry from a SHA-256 and GPG-verified source release, prepare a fresh VPS, install Docker only when absent, pull an explicit GHCR version tag, issue an ACME certificate, generate the ocserv configuration and first user, configure forwarding/NAT/firewall, inspect health, add users, upgrade the image, or roll back to a retained image. Optionally prepare nginx as the HTTP/ACME edge for a future UI without proxying ocserv.
 ---
 
 # ocserv VPS
 
-Deploy and operate a complete ocserv VPN stack through deterministic bundled scripts. Build and publish the ocserv image through the repository's reviewed GitHub Actions workflow, then deploy the exact GHCR digest to the VPS.
+Deploy and operate a complete ocserv VPN stack through deterministic bundled scripts. Build and publish the ocserv image through the repository's reviewed GitHub Actions workflow, then deploy the explicit GHCR version tag to the VPS.
 
 Treat this skill as manual-first. Bootstrap changes host networking and firewall policy. Deployment and rollback can disconnect active VPN sessions.
 
@@ -17,8 +17,9 @@ Treat this skill as manual-first. Bootstrap changes host networking and firewall
 - Require explicit firewall and restart approvals; never add them silently.
 - Install Docker Engine only when `docker` is absent. When Docker exists, preserve it and add only a missing Compose v2 plugin.
 - Build every ocserv image from an exact HTTPS source archive after SHA-256, detached-signature, and full-fingerprint verification in GitHub Actions.
-- Keep `docker/Dockerfile` explicit and reviewed. Publish only immutable version-plus-source-SHA tags to `ghcr.io/khorevaa/ocserv-vps`.
-- Deploy to the VPS only by a full `ghcr.io/...@sha256:` manifest digest. Never deploy a tag or `latest`.
+- Keep `docker/Dockerfile` explicit and reviewed. Publish `ghcr.io/khorevaa/ocserv-vps:<version>`.
+- Deploy to the VPS only by an explicit version tag. Never deploy `latest` or a digest-qualified reference.
+- Require successful OpenConnect authentication and a tunneled HTTPS request after bootstrap, upgrade, and rollback. Treat a failed probe as a failed deployment.
 - Keep ocserv on host networking with TCP and UDP listeners; do not place HTTP `proxy_pass` or `grpc_pass` in front of it.
 - Keep generated credentials out of summaries. Retrieve root-only credential files securely and delete them afterward.
 
@@ -44,7 +45,7 @@ Collect before running `.github/workflows/publish-ocserv-image.yml`:
 - exact HTTPS signing-key URL and full expected fingerprint
 - Debian/Ubuntu base image reference containing an immutable `@sha256:` digest
 
-The workflow verifies the source, builds the explicit repository-root `docker/Dockerfile`, and pushes an immutable image to GHCR. Use the resulting manifest digest, not merely its tag.
+The workflow verifies the source, builds the explicit repository-root `docker/Dockerfile`, and pushes `ghcr.io/khorevaa/ocserv-vps:<version>` to GHCR. Use that exact version tag.
 
 ## Required bootstrap inputs
 
@@ -54,7 +55,7 @@ Collect before VPS mutation:
 - public domain and ACME email
 - initial VPN username; the server generates its password
 - exact ocserv version matching the OCI label
-- exact public or pre-authenticated `ghcr.io/<owner>/<image>@sha256:<digest>` reference
+- exact public or pre-authenticated `ghcr.io/<owner>/<image>:<version>` reference
 - explicit acceptance that firewall policy will allow only established traffic, loopback, SSH, HTTP/ACME, ICMP, and the chosen VPN TCP/UDP port
 - explicit acceptance that deployment can disconnect sessions
 
@@ -65,7 +66,7 @@ Read [`references/release-sourcing.md`](references/release-sourcing.md) before r
 Use this fixed runtime shape:
 
 - stack root: `/opt/ocserv-vps`
-- published image: `ghcr.io/khorevaa/ocserv-vps:<version>-<source-sha-prefix>@sha256:<manifest-digest>`
+- published image: `ghcr.io/khorevaa/ocserv-vps:<version>`
 - Compose service and container: `ocserv-vps`
 - Docker networking: `network_mode: host`
 - device: `/dev/net/tun`
@@ -102,9 +103,9 @@ Treat these as blockers:
 - existing unmanaged container named `ocserv-vps`
 - incomplete managed state
 
-### 2. Publish the immutable image
+### 2. Publish the version-tagged image
 
-Run the `Publish ocserv image` GitHub Actions workflow with the exact release tuple and pinned base-image digest. Confirm the workflow summary contains a `ghcr.io/...@sha256:` reference. Ensure the GHCR package is public before unauthenticated fresh-VPS deployment, or pre-authenticate Docker separately.
+Run the `Publish ocserv image` GitHub Actions workflow with the exact release tuple and pinned base-image digest. Confirm the workflow summary contains `ghcr.io/khorevaa/ocserv-vps:<version>`. Ensure the GHCR package is public before unauthenticated fresh-VPS deployment, or pre-authenticate Docker separately.
 
 ### 3. Bootstrap a complete VPS
 
@@ -117,7 +118,7 @@ Run a dry plan first:
   --acme-email admin@example.com \
   --vpn-username operator \
   --version <version> \
-  --image <ghcr.io/owner/ocserv-vps@sha256:manifest-digest> \
+  --image ghcr.io/khorevaa/ocserv-vps:<version> \
   --approve-firewall \
   --approve-restart \
   --dry-run
@@ -131,7 +132,7 @@ Bootstrap must:
 
 1. install required host tools
 2. preserve an existing Docker installation or install Docker from the official APT repository only when absent
-3. pull the exact GHCR digest and validate its version, source-SHA, and base-image OCI labels
+3. pull the exact GHCR version tag and validate its version, source-SHA, and base-image OCI labels
 4. generate the ocserv configuration and password database
 5. store initial credentials in `/root/ocserv-vps-initial-credentials` mode `0600`
 6. snapshot firewall state
@@ -139,6 +140,7 @@ Bootstrap must:
 8. issue or reuse the ACME certificate
 9. validate the configuration inside the image
 10. start Compose and require matching image ID plus TCP/UDP health checks
+11. authenticate with OpenConnect from an isolated network namespace and require an HTTPS request routed through the tunnel
 
 ### 4. Verify and retrieve credentials
 
@@ -164,7 +166,7 @@ The script generates a new random password on the VPS, updates `ocpasswd`, signa
 
 ### 6. Upgrade ocserv
 
-Publish the new image through GitHub Actions, then run `deploy-release.sh` with its exact GHCR digest. The script pulls and validates OCI labels without changing the active stack, tests the image against the current config and certificate, snapshots state, activates it through Compose, and restores the previous image automatically on failure.
+Publish the new image through GitHub Actions, then run `deploy-release.sh` with its exact GHCR version tag. The script pulls and validates OCI labels without changing the active stack, tests the image against the current config and certificate, snapshots state, activates it through Compose, creates a temporary probe user, requires a successful OpenConnect tunnel and HTTPS request, deletes the probe user, and restores the previous image automatically on failure.
 
 Never run `apt upgrade`, rewrite the VPN configuration, or prune the previous image as part of a release upgrade.
 
@@ -179,7 +181,7 @@ Run:
   --approve-restart
 ```
 
-Rollback must validate the retained image before activation and restore the image active at rollback start if health checks fail.
+Rollback must validate the retained image before activation, require the same temporary-user OpenConnect probe, and restore the image active at rollback start if any check fails.
 
 ## nginx and future UI
 
@@ -194,6 +196,7 @@ Read [`references/nginx-ui.md`](references/nginx-ui.md) before adding a UI. Deci
 - ACME failure: restore pre-bootstrap firewall state and do not start ocserv.
 - Config validation failure: keep the active image unchanged.
 - Health failure: restore the previous image and show container logs.
+- OpenConnect authentication, tunnel-route, or HTTPS failure: remove the temporary probe user and restore the previous image.
 - Unknown firewall or network topology: extend the bundled scripts; do not apply manual rules.
 
 Read [`references/troubleshooting.md`](references/troubleshooting.md) for stage-specific checks.

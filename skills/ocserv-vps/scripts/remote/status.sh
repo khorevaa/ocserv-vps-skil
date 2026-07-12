@@ -20,6 +20,9 @@ fi
 CURRENT_IMAGE="$(state_get current_image)"
 VPN_PORT="$(state_get vpn_port)"
 DOMAIN="$(state_get domain)"
+OPENCONNECT_CHECKED_AT="$(state_get openconnect_checked_at)"
+
+printf 'Last mandatory OpenConnect check: %s\n' "${OPENCONNECT_CHECKED_AT:-not recorded}"
 
 printf '\n%s\n' '=== Docker stack ==='
 if command -v docker >/dev/null 2>&1; then

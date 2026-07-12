@@ -10,7 +10,7 @@ usage() {
 Usage:
   bootstrap-vps.sh --host <ssh_target> --domain <fqdn> --acme-email <email> \
     --vpn-username <name> --version <version> \
-    --image <ghcr.io/owner/image@sha256:digest> \
+    --image <ghcr.io/owner/image:version> \
     --approve-firewall --approve-restart [options]
 
 Options:
@@ -104,6 +104,7 @@ Bootstrap plan:
   prepare_nginx=${PREPARE_NGINX}
   initial_user=${VPN_USERNAME}
   docker=preserve when present; install only when absent
+  post_deploy_check=mandatory OpenConnect login plus tunneled HTTPS
 No SSH connection was made.
 EOF
   exit 0

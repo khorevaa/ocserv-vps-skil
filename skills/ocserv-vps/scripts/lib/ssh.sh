@@ -40,8 +40,8 @@ ocserv_validate_domain() {
 
 ocserv_validate_registry_image() {
   local image="$1"
-  if [[ ! "${image}" =~ ^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9A-Fa-f]{64}$ ]]; then
-    printf '%s\n' '--image must be ghcr.io/<owner>/<image>[:tag]@sha256:<64-hex>.' >&2
+  if [[ ! "${image}" =~ ^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+    printf '%s\n' '--image must be ghcr.io/<owner>/<image>:<version> without a digest.' >&2
     exit 2
   fi
 }

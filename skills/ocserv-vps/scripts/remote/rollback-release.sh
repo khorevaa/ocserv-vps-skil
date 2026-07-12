@@ -24,6 +24,7 @@ for command in docker flock ss; do require_command "${command}"; done
 install -d -m 0755 "$(dirname "${OCSERV_LOCK}")"
 exec 9>"${OCSERV_LOCK}"
 flock -n 9 || die 'Another ocserv VPS operation is running.'
+ensure_openconnect_probe_tools
 
 OLD_VERSION="$(state_get current_version)"
 OLD_IMAGE="$(state_get current_image)"
@@ -52,6 +53,8 @@ BACKUP_DIR="${LAST_BACKUP}"
 TARGET_SHA="$(docker image inspect --format '{{ index .Config.Labels "org.ocserv-vps.source-sha256" }}' "${TARGET_IMAGE}")"
 
 ROLLBACK_COMMITTED="0"
+PROBE_USER_CREATED="0"
+PROBE_USERNAME=""
 restore_original() {
   warn "Restoring ${OLD_IMAGE}."
   set +e
@@ -63,6 +66,10 @@ restore_original() {
 on_exit() {
   local status=$?
   trap - EXIT HUP INT TERM
+  if [[ "${PROBE_USER_CREATED}" == "1" ]]; then
+    delete_password_user "${TARGET_IMAGE}" "${PROBE_USERNAME}" >/dev/null 2>&1 || warn "Failed to remove temporary probe user ${PROBE_USERNAME}."
+    docker kill --signal HUP "${OCSERV_CONTAINER}" >/dev/null 2>&1 || true
+  fi
   if [[ "${status}" -ne 0 && "${ROLLBACK_COMMITTED}" != "1" ]]; then restore_original || true; fi
   exit "${status}"
 }
@@ -73,6 +80,16 @@ info "Rolling back from ${OLD_VERSION} to ${TARGET_VERSION}; active VPN sessions
 write_stack_env "${TARGET_IMAGE}"
 compose up -d --remove-orphans
 health_check_stack "${TARGET_IMAGE}" "${VPN_PORT}" "${HEALTH_TIMEOUT}" || die 'Rollback target failed health checks.'
+PROBE_USERNAME="ocserv-check-$(openssl rand -hex 4)"
+create_password_user "${TARGET_IMAGE}" "${PROBE_USERNAME}"
+PROBE_PASSWORD="${GENERATED_VPN_PASSWORD}"
+PROBE_USER_CREATED="1"
+docker kill --signal HUP "${OCSERV_CONTAINER}" >/dev/null 2>&1 || true
+verify_openconnect_data_path "${DOMAIN}" "${VPN_PORT}" "${PROBE_USERNAME}" "${PROBE_PASSWORD}"
+delete_password_user "${TARGET_IMAGE}" "${PROBE_USERNAME}"
+PROBE_USER_CREATED="0"
+unset PROBE_PASSWORD GENERATED_VPN_PASSWORD
+docker kill --signal HUP "${OCSERV_CONTAINER}" >/dev/null 2>&1 || true
 write_state "${TARGET_VERSION}" "${TARGET_IMAGE}" "${OLD_VERSION}" "${OLD_IMAGE}" "${DOMAIN}" \
   "${VPN_NETWORK}" "${VPN_PORT}" "${TARGET_SHA}" "${BACKUP_DIR}"
 

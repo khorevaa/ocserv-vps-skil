@@ -25,11 +25,11 @@ SHA, fingerprint, or signature failures are hard stops. Re-resolve the immutable
 
 For compile failure, inspect the GitHub Actions Docker build step. Common causes are a changed mandatory library, base-image package rename, or new Meson/Autotools requirement. Update only `docker/Dockerfile` and retry the same tuple.
 
-The active container is unchanged until the exact published GHCR digest is pulled and passes config validation.
+The active container is unchanged until the exact published GHCR version tag is pulled and passes config validation.
 
 ## GHCR pull
 
-Require a full `ghcr.io/...@sha256:` reference. If a fresh VPS receives `denied`, confirm the package is public. Do not pass GitHub tokens through command-line arguments. For a private package, establish Docker authentication through a separately reviewed secret mechanism.
+Require an explicit `ghcr.io/<owner>/<image>:<version>` reference without `@sha256`. If a fresh VPS receives `denied`, confirm the package is public. Do not pass GitHub tokens through command-line arguments. For a private package, establish Docker authentication through a separately reviewed secret mechanism.
 
 ## ACME
 
@@ -71,6 +71,19 @@ sysctl net.ipv4.ip_forward
 ```
 
 TCP without UDP means clients fall back from DTLS and performance suffers. A working listener with no internet access usually indicates forwarding, public-interface, or NAT mismatch.
+
+## Mandatory OpenConnect probe
+
+The deployment is not successful until the isolated probe authenticates and reaches the HTTPS target through `ocprobe0`. Check:
+
+```bash
+openconnect --version
+test -x /usr/share/vpnc-scripts/vpnc-script || test -x /etc/vpnc/vpnc-script
+ip netns list
+docker logs --tail 100 ocserv-vps
+```
+
+The probe removes its namespace, veth pair, password file, and temporary user through exit traps. A leftover `ocsv-*` namespace indicates an interrupted cleanup; inspect it before deleting it. Certificate, authentication, tunnel-route, forwarding/NAT, or outbound HTTPS failures are hard deployment failures.
 
 ## Firewall lockout
 

@@ -86,7 +86,7 @@ jobs:
           docker buildx create --driver docker-container --name ocserv-builder --use
           docker buildx inspect --bootstrap
 
-      - name: Build and push immutable image
+      - name: Build and push version tag
         id: build
         env:
           VERSION: ${{ inputs.ocserv_version }}
@@ -96,36 +96,30 @@ jobs:
           set -euo pipefail
           cp docker/entrypoint.sh docker/context/entrypoint.sh
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          sha="${SOURCE_SHA256,,}"
-          tag="ghcr.io/${owner}/ocserv-vps:${VERSION}-${sha:0:12}"
-          metadata_file="${RUNNER_TEMP}/ocserv-build-metadata.json"
+          source_sha="${SOURCE_SHA256,,}"
+          tag="ghcr.io/${owner}/ocserv-vps:${VERSION}"
           docker buildx build \
             --file docker/Dockerfile \
             --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
             --build-arg "OCSERV_VERSION=${VERSION}" \
-            --build-arg "SOURCE_SHA256=${sha}" \
+            --build-arg "SOURCE_SHA256=${source_sha}" \
             --tag "${tag}" \
             --provenance=mode=max \
             --sbom=true \
-            --metadata-file "${metadata_file}" \
             --push \
             docker/context
-          digest="$(jq -r '."containerimage.digest"' "${metadata_file}")"
-          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf 'image=%s\n' "${tag}" >> "${GITHUB_OUTPUT}"
-          printf 'digest=%s\n' "${digest}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish result summary
         env:
           IMAGE: ${{ steps.build.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
             echo '## Published ocserv image'
             echo
-            echo 'Use this immutable reference for VPS deployment:'
+            echo 'Use this version tag for VPS deployment:'
             echo
             echo '```text'
-            echo "${IMAGE%@*}@${DIGEST}"
+            echo "${IMAGE}"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"

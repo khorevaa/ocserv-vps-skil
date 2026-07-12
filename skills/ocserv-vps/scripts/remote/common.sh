@@ -40,8 +40,8 @@ validate_port() {
 }
 
 validate_registry_image() {
-  [[ "$1" =~ ^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9A-Fa-f]{64}$ ]] || \
-    die 'Image must be an immutable ghcr.io/<owner>/<image>[:tag]@sha256:<64-hex> reference.'
+  [[ "$1" =~ ^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || \
+    die 'Image must be ghcr.io/<owner>/<image>:<version> without a digest.'
 }
 
 validate_ipv4_cidr() {
@@ -81,6 +81,7 @@ vpn_network=${vpn_network}
 vpn_port=${vpn_port}
 source_sha256=${source_sha256}
 last_backup=${last_backup}
+openconnect_checked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
   chmod 0640 "${temp}"
@@ -312,6 +313,156 @@ create_password_user() {
   chmod 0600 "${OCSERV_CONFIG_DIR}/ocpasswd"
   GENERATED_VPN_PASSWORD="${password}"
 }
+
+delete_password_user() {
+  local image="$1" username="$2"
+  validate_username "${username}"
+  docker run --rm --entrypoint /usr/local/bin/ocpasswd \
+    -v "${OCSERV_CONFIG_DIR}:/etc/ocserv" "${image}" \
+    -c /etc/ocserv/ocpasswd -d "${username}"
+}
+
+ensure_openconnect_probe_tools() {
+  local -a missing=()
+  local tool help_text script_candidate
+  for tool in openconnect curl ip timeout; do
+    command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    info "Installing missing OpenConnect probe tools: ${missing[*]}"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+      ca-certificates curl iproute2 openconnect vpnc-scripts
+  fi
+  for tool in openconnect curl ip timeout; do require_command "${tool}"; done
+  help_text="$(openconnect --help 2>&1 || true)"
+  for tool in --background --interface --non-inter --passwd-on-stdin --pid-file --resolve --script; do
+    grep -q -- "${tool}" <<<"${help_text}" || die "Installed openconnect does not advertise ${tool}."
+  done
+  OPENCONNECT_VPNC_SCRIPT=""
+  for script_candidate in /usr/share/vpnc-scripts/vpnc-script /etc/vpnc/vpnc-script; do
+    if [[ -x "${script_candidate}" ]]; then OPENCONNECT_VPNC_SCRIPT="${script_candidate}"; break; fi
+  done
+  [[ -n "${OPENCONNECT_VPNC_SCRIPT}" ]] || die 'vpnc-script is unavailable after installing vpnc-scripts.'
+}
+
+verify_openconnect_data_path() (
+  set -euo pipefail
+  local domain="$1" vpn_port="$2" username="$3" password="$4"
+  local resolved_ip server_ip suffix namespace host_interface peer_interface
+  local password_file script_file pid_file probe_network
+
+  validate_domain "${domain}"
+  validate_port 'VPN port' "${vpn_port}"
+  validate_username "${username}"
+  [[ -n "${password}" ]] || die 'OpenConnect probe password is empty.'
+  ensure_openconnect_probe_tools
+
+  resolved_ip="$(getent ahostsv4 "${domain}" | awk '$2 == "STREAM" {print $1; exit}')"
+  [[ -n "${resolved_ip}" ]] || die "Cannot resolve ${domain} to IPv4 for the OpenConnect probe."
+  validate_ipv4_cidr "${resolved_ip}/32" || die "Resolved address is not valid IPv4: ${resolved_ip}"
+  server_ip="$(ip -4 route get 1.1.1.1 | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+  [[ -n "${server_ip}" ]] || die 'Cannot determine the VPS IPv4 address for the OpenConnect probe.'
+  validate_ipv4_cidr "${server_ip}/32" || die "Resolved address is not valid IPv4: ${server_ip}"
+
+  suffix="$(openssl rand -hex 3)"
+  namespace="ocsv-${suffix}"
+  host_interface="ocvh${suffix}"
+  peer_interface="ocvn${suffix}"
+  probe_network='198.18.0.0/30'
+  password_file="/run/ocserv-vps-openconnect-${suffix}.password"
+  script_file="/run/ocserv-vps-openconnect-${suffix}-vpnc-script"
+  pid_file="/run/ocserv-vps-openconnect-${suffix}.pid"
+
+  cleanup_probe() {
+    local status=$?
+    set +e
+    ip netns del "${namespace}" >/dev/null 2>&1
+    ip link del "${host_interface}" >/dev/null 2>&1
+    rm -f "${password_file}" "${script_file}" "${pid_file}"
+    exit "${status}"
+  }
+  trap cleanup_probe EXIT
+  trap 'exit 130' HUP INT TERM
+
+  (umask 077; printf '%s\n' "${password}" > "${password_file}")
+  cat > "${script_file}" <<EOF
+#!/bin/sh
+unset INTERNAL_IP4_DNS INTERNAL_IP6_DNS CISCO_DEF_DOMAIN CISCO_SPLIT_DNS
+exec '${OPENCONNECT_VPNC_SCRIPT}' "\$@"
+EOF
+  chmod 0600 "${password_file}"
+  chmod 0700 "${script_file}"
+
+  ip netns add "${namespace}"
+  ip link add "${host_interface}" type veth peer name "${peer_interface}"
+  ip link set "${peer_interface}" netns "${namespace}"
+  ip address add 198.18.0.1/30 dev "${host_interface}"
+  ip link set "${host_interface}" up
+  ip netns exec "${namespace}" ip link set lo up
+  ip netns exec "${namespace}" ip address add 198.18.0.2/30 dev "${peer_interface}"
+  ip netns exec "${namespace}" ip link set "${peer_interface}" up
+  ip netns exec "${namespace}" ip route add default via 198.18.0.1
+
+  ip netns exec "${namespace}" timeout --signal=TERM --kill-after=5s 75s bash -c '
+      set -euo pipefail
+      domain="$1"
+      vpn_port="$2"
+      username="$3"
+      server_ip="$4"
+      password_file="$5"
+      script_file="$6"
+      pid_file="$7"
+
+      cleanup_client() {
+        set +e
+        if [[ -s "${pid_file}" ]]; then
+          client_pid="$(cat "${pid_file}")"
+          kill -TERM "${client_pid}" >/dev/null 2>&1
+          for _ in 1 2 3 4 5; do
+            kill -0 "${client_pid}" >/dev/null 2>&1 || break
+            sleep 1
+          done
+          kill -KILL "${client_pid}" >/dev/null 2>&1
+        fi
+        rm -f "${pid_file}"
+      }
+      trap cleanup_client EXIT
+      trap "exit 130" HUP INT TERM
+
+      env -u ALL_PROXY -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u https_proxy -u http_proxy \
+        openconnect \
+          --protocol=anyconnect \
+          --interface=ocprobe0 \
+          --user="${username}" \
+          --passwd-on-stdin \
+          --non-inter \
+          --background \
+          --pid-file="${pid_file}" \
+          --script="${script_file}" \
+          --resolve="${domain}:${server_ip}" \
+          "https://${domain}:${vpn_port}" < "${password_file}"
+
+      [[ -s "${pid_file}" ]] || { printf "%s\n" "OpenConnect did not create a PID file." >&2; exit 1; }
+      kill -0 "$(cat "${pid_file}")"
+
+      route_device=""
+      for _ in $(seq 1 20); do
+        route_device="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '\''{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}'\'')"
+        [[ "${route_device}" == "ocprobe0" ]] && break
+        sleep 1
+      done
+      [[ "${route_device}" == "ocprobe0" ]] || { printf "Route to 1.1.1.1 does not use the OpenConnect tunnel: %s\n" "${route_device:-missing}" >&2; exit 1; }
+
+      probe_output="$(env -u ALL_PROXY -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u https_proxy -u http_proxy \
+        curl --noproxy "*" --interface ocprobe0 --fail --silent --show-error --max-time 20 \
+          https://1.1.1.1/cdn-cgi/trace)"
+      grep -q "^ip=" <<<"${probe_output}" || { printf "%s\n" "HTTPS probe did not return a client IP." >&2; exit 1; }
+    ' _ "${domain}" "${vpn_port}" "${username}" "${server_ip}" "${password_file}" "${script_file}" "${pid_file}"
+
+  info "Mandatory OpenConnect authentication and tunneled HTTPS probe passed for ${domain}:${vpn_port}."
+)
 
 render_network_assets() {
   local vpn_network="$1" vpn_port="$2" ssh_port="$3" public_interface="$4"
