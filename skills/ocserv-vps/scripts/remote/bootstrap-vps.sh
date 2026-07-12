@@ -106,6 +106,11 @@ BOOTSTRAP_COMMITTED="0"
 rollback_bootstrap() {
   warn 'Bootstrap failed; stopping the new stack and restoring the previous firewall rules.'
   set +e
+  if docker inspect "${OCSERV_CONTAINER}" >/dev/null 2>&1; then
+    docker logs --tail 200 "${OCSERV_CONTAINER}" > "${BOOTSTRAP_BACKUP}/ocserv-container.log" 2>&1
+    warn "Container logs saved to ${BOOTSTRAP_BACKUP}/ocserv-container.log."
+    sed -n '1,200p' "${BOOTSTRAP_BACKUP}/ocserv-container.log" >&2
+  fi
   if [[ -f "${OCSERV_COMPOSE_FILE}" && -f "${OCSERV_ENV_FILE}" ]]; then compose down >/dev/null 2>&1; fi
   iptables-restore < "${BOOTSTRAP_BACKUP}/iptables.rules"
   [[ ! -s "${BOOTSTRAP_BACKUP}/ip6tables.rules" ]] || ip6tables-restore < "${BOOTSTRAP_BACKUP}/ip6tables.rules"

@@ -27,6 +27,13 @@ password=${GENERATED_VPN_PASSWORD}
 created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 chmod 0600 "${CREDENTIAL_FILE}"
+if [[ -f /root/ocserv-vps-initial-credentials ]]; then
+  INITIAL_USERNAME="$(awk -F= '$1 == "username" {print substr($0, index($0, "=") + 1); exit}' /root/ocserv-vps-initial-credentials)"
+  if [[ "${INITIAL_USERNAME}" == "${USERNAME}" ]]; then
+    rm -f /root/ocserv-vps-initial-credentials
+    info 'Removed the stale initial credential file for the rotated user.'
+  fi
+fi
 docker kill --signal HUP "${OCSERV_CONTAINER}" >/dev/null 2>&1 || true
 info "User ${USERNAME} was written to the password database."
 info "Credentials were stored root-only in ${CREDENTIAL_FILE}; retrieve them securely and delete the file."

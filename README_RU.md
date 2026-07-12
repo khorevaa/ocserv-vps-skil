@@ -20,6 +20,7 @@
 - запуск ocserv через host networking с `/dev/net/tun`, `NET_ADMIN` и `NET_RAW`
 - проверка image ID, конфигурации и TCP/UDP listeners
 - обязательный реальный вход через OpenConnect и HTTPS-запрос через tunnel из изолированного network namespace после bootstrap, upgrade и rollback
+- controller-side OpenConnect-тест для Linux или WSL2
 - добавление пользователей со сгенерированными паролями, обновление образа и rollback
 - опциональная подготовка nginx на порту 80 для ACME и будущего UI без проксирования ocserv
 
@@ -55,6 +56,7 @@ $ocserv-vps разверни полностью настроенный Dockerize
 - [`rollback-release.sh`](skills/ocserv-vps/scripts/rollback-release.sh): переход на сохранённый image с автоматическим восстановлением
 - [`status.sh`](skills/ocserv-vps/scripts/status.sh): container, certificate, listeners, network и backups
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): создание password-пользователя
+- [`test-openconnect-client.sh`](skills/ocserv-vps/scripts/test-openconnect-client.sh): локальная Linux/WSL-проверка tunnel и HTTPS data path
 
 Полная процедура и safety gates находятся в [`skills/ocserv-vps/SKILL.md`](skills/ocserv-vps/SKILL.md).
 

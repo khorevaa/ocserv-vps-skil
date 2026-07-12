@@ -20,6 +20,7 @@ The canonical installable bundle is [`skills/ocserv-vps/`](skills/ocserv-vps/).
 - runs ocserv with host networking, `/dev/net/tun`, `NET_ADMIN`, and `NET_RAW`
 - checks the running image ID, configuration, and TCP/UDP listeners
 - requires a real OpenConnect login and tunneled HTTPS request from an isolated network namespace after bootstrap, upgrade, and rollback
+- includes a controller-side OpenConnect test for Linux or WSL2
 - supports generated-password user creation, verified image upgrades, and rollback
 - optionally prepares nginx on port 80 for ACME and a future UI without proxying ocserv
 
@@ -55,6 +56,7 @@ $ocserv-vps bootstrap a complete Dockerized ocserv VPN on my VPS
 - [`rollback-release.sh`](skills/ocserv-vps/scripts/rollback-release.sh): activate a retained image with automatic restoration
 - [`status.sh`](skills/ocserv-vps/scripts/status.sh): container, certificate, listener, network, and backup status
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): generate and add a password user
+- [`test-openconnect-client.sh`](skills/ocserv-vps/scripts/test-openconnect-client.sh): local Linux/WSL tunnel and HTTPS data-path test
 
 Read [`skills/ocserv-vps/SKILL.md`](skills/ocserv-vps/SKILL.md) for the full operating procedure and safety gates.
 

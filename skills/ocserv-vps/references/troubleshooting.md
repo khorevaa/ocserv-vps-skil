@@ -57,6 +57,8 @@ docker inspect ocserv-vps
 
 Confirm `/dev/net/tun`, `NET_ADMIN`, the config and certificate mounts, and that the running image ID matches the state file.
 
+If OpenConnect reaches TCP 443 but TLS closes and container logs show `error connecting to sec-mod socket ... Permission denied`, confirm the Compose tmpfs for `/run/ocserv` uses mode `0755`. Docker tmpfs hides the image directory ownership; unprivileged workers need directory traversal while the socket keeps its own access controls.
+
 ## Listener or client failure
 
 Check both protocols:
@@ -84,6 +86,8 @@ docker logs --tail 100 ocserv-vps
 ```
 
 The probe removes its namespace, veth pair, password file, and temporary user through exit traps. A leftover `ocsv-*` namespace indicates an interrupted cleanup; inspect it before deleting it. Certificate, authentication, tunnel-route, forwarding/NAT, or outbound HTTPS failures are hard deployment failures.
+
+Keep the temporary executable `vpnc-script` wrapper under `/opt/ocserv-vps/bin`, not `/run`: Ubuntu may mount `/run` with `noexec`. Password and PID files remain under `/run`.
 
 ## Firewall lockout
 

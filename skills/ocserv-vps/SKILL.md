@@ -154,6 +154,8 @@ Retrieve the initial credentials over the independent SSH session, store them in
 
 Test a real OpenConnect/AnyConnect-compatible client before closing the independent SSH session.
 
+On a Linux controller or WSL2, pipe the password to `scripts/test-openconnect-client.sh --server <domain> --username <name>`. The script requires the route and HTTPS probe to traverse its temporary OpenConnect interface, then disconnects and removes its password file.
+
 ### 5. Add another user
 
 Run:
@@ -162,7 +164,7 @@ Run:
 ./scripts/add-user.sh --host root@vpn.example.com --username phone
 ```
 
-The script generates a new random password on the VPS, updates `ocpasswd`, signals the running container, and writes a root-only one-time credential file.
+The script generates a new random password on the VPS, updates `ocpasswd`, signals the running container, and writes a root-only one-time credential file. When rotating the initial user, it removes the stale initial credential file.
 
 ### 6. Upgrade ocserv
 
@@ -209,6 +211,7 @@ Read [`references/troubleshooting.md`](references/troubleshooting.md) for stage-
 - `scripts/rollback-release.sh`: retained-image rollback
 - `scripts/status.sh`: container, listener, network, certificate, user, and backup status
 - `scripts/add-user.sh`: generated-password user management
+- `scripts/test-openconnect-client.sh`: controller-side OpenConnect tunnel and HTTPS data-path test
 - `scripts/ssh-with-password.sh`: optional SSH password wrapper without `sshpass`
 - `scripts/remote/`: bundled server-side implementations
 

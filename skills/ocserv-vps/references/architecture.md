@@ -25,6 +25,7 @@ The container receives only `NET_ADMIN`, `NET_RAW`, and `/dev/net/tun`; do not s
 - `/opt/ocserv-vps/config/ocserv.conf`: generated configuration
 - `/opt/ocserv-vps/config/ocpasswd`: mode `0600` password database
 - `/opt/ocserv-vps/images/<version>-<sha>/`: pulled image reference, labels, and local image ID
+- container `/run/ocserv`: root-owned tmpfs mode `0755`; sec-mod socket permissions still control access while unprivileged workers can traverse the directory
 - `/opt/ocserv-vps/bin/apply-network.sh`: idempotent network/firewall implementation
 - `/var/backups/ocserv-vps/<timestamp>-<operation>`: root-only snapshots
 - `/root/ocserv-vps-*-credentials`: short-lived root-only credential handoff files

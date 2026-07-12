@@ -117,7 +117,7 @@ services:
       - ./config:/etc/ocserv:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     tmpfs:
-      - /run/ocserv:mode=0750
+      - /run/ocserv:mode=0755
     restart: unless-stopped
     stop_grace_period: 45s
     healthcheck:
@@ -373,7 +373,7 @@ verify_openconnect_data_path() (
   peer_interface="ocvn${suffix}"
   probe_network='198.18.0.0/30'
   password_file="/run/ocserv-vps-openconnect-${suffix}.password"
-  script_file="/run/ocserv-vps-openconnect-${suffix}-vpnc-script"
+  script_file="${OCSERV_BIN_DIR}/openconnect-${suffix}-vpnc-script"
   pid_file="/run/ocserv-vps-openconnect-${suffix}.pid"
 
   cleanup_probe() {
