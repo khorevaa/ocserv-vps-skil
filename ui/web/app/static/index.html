@@ -235,7 +235,14 @@
               <div id="connections-loading" class="table-state"><div class="spinner" aria-hidden="true"></div><span>Загрузка подключений…</span></div>
               <div id="connections-empty" class="table-state is-hidden">Активных подключений нет</div>
             </div>
-            <footer class="table-footer"><span id="connections-count">0 подключений</span></footer>
+            <footer class="table-footer">
+              <span id="connections-count">0 подключений</span>
+              <div class="pagination" aria-label="Страницы подключений">
+                <button id="connections-prev" class="pagination-button" type="button">Назад</button>
+                <span id="connections-page" class="pagination-page">1 / 1</span>
+                <button id="connections-next" class="pagination-button" type="button">Вперёд</button>
+              </div>
+            </footer>
           </div>
         </section>
 
@@ -277,7 +284,14 @@
               <div id="journal-loading" class="table-state"><div class="spinner" aria-hidden="true"></div><span>Загрузка журнала…</span></div>
               <div id="journal-empty" class="table-state is-hidden">Событий пока нет</div>
             </div>
-            <footer class="table-footer"><span id="journal-count">0 событий</span></footer>
+            <footer class="table-footer">
+              <span id="journal-count">0 событий</span>
+              <div class="pagination" aria-label="Страницы журнала">
+                <button id="journal-prev" class="pagination-button" type="button">Назад</button>
+                <span id="journal-page" class="pagination-page">1 / 1</span>
+                <button id="journal-next" class="pagination-button" type="button">Вперёд</button>
+              </div>
+            </footer>
           </div>
         </section>
 
@@ -324,6 +338,11 @@
             </div>
             <footer class="table-footer">
               <span id="users-count">0 пользователей</span>
+              <div class="pagination" aria-label="Страницы пользователей">
+                <button id="users-prev" class="pagination-button" type="button">Назад</button>
+                <span id="users-page" class="pagination-page">1 / 1</span>
+                <button id="users-next" class="pagination-button" type="button">Вперёд</button>
+              </div>
             </footer>
           </div>
         </section>

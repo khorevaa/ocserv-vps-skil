@@ -10,6 +10,9 @@
     usersLoaded: false,
     connectionsLoaded: false,
     journalLoaded: false,
+    usersPage: 1,
+    connectionsPage: 1,
+    journalPage: 1,
     overviewLoaded: false,
     currentView: "overview",
     rotateUsername: "",
@@ -30,6 +33,7 @@
   const userSearch = el("user-search");
   const connectionsTableBody = el("connections-table-body");
   const journalTableBody = el("journal-table-body");
+  const pageSize = 10;
 
   const themeSelect = el("theme-select");
   const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -342,6 +346,17 @@
     return forms[2];
   }
 
+  function pageSlice(items, pageKey, prefix) {
+    const pages = Math.max(1, Math.ceil(items.length / pageSize));
+    state[pageKey] = Math.min(Math.max(1, state[pageKey]), pages);
+    const start = (state[pageKey] - 1) * pageSize;
+    const end = Math.min(start + pageSize, items.length);
+    el(`${prefix}-prev`).disabled = state[pageKey] <= 1;
+    el(`${prefix}-next`).disabled = state[pageKey] >= pages;
+    el(`${prefix}-page`).textContent = `${state[pageKey]} / ${pages}`;
+    return { items: items.slice(start, end), start, end, total: items.length };
+  }
+
   function isServiceOnline(status) {
     const normalized = String(status || "").toLowerCase();
     return ["online", "running", "healthy", "active", "up"].includes(normalized);
@@ -435,9 +450,10 @@
       ? state.users.filter((user) => user.username.toLocaleLowerCase("ru").includes(query))
       : state.users;
 
+    const page = pageSlice(visibleUsers, "usersPage", "users");
     usersTableBody.replaceChildren();
     const fragment = document.createDocumentFragment();
-    visibleUsers.forEach((user) => {
+    page.items.forEach((user) => {
       const row = document.createElement("tr");
 
       const usernameCell = document.createElement("td");
@@ -474,11 +490,9 @@
 
     setHidden(el("users-loading"), true);
     setHidden(el("users-empty"), visibleUsers.length > 0);
-    const displayed = visibleUsers.length;
-    const total = state.users.length;
-    el("users-count").textContent = query
-      ? `${displayed} из ${total}`
-      : `${total} ${pluralize(total, ["пользователь", "пользователя", "пользователей"])}`;
+    el("users-count").textContent = page.total === 0
+      ? "0 пользователей"
+      : `${page.start + 1}–${page.end} из ${page.total}${query ? ` · всего ${state.users.length}` : ""}`;
   }
 
   async function loadUsers(force = false) {
@@ -507,8 +521,11 @@
   }
 
   userSearch.addEventListener("input", () => {
+    state.usersPage = 1;
     if (state.usersLoaded) renderUsers();
   });
+  el("users-prev").addEventListener("click", () => { state.usersPage -= 1; renderUsers(); });
+  el("users-next").addEventListener("click", () => { state.usersPage += 1; renderUsers(); });
   el("users-refresh").addEventListener("click", () => loadUsers(true));
   usersTableBody.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='rotate-password']");
@@ -531,9 +548,10 @@
   }
 
   function renderConnections() {
+    const page = pageSlice(state.connections, "connectionsPage", "connections");
     connectionsTableBody.replaceChildren();
     const fragment = document.createDocumentFragment();
-    state.connections.forEach((connection) => {
+    page.items.forEach((connection) => {
       const row = document.createElement("tr");
       const username = document.createElement("td");
       username.className = "username-cell";
@@ -566,8 +584,7 @@
     connectionsTableBody.closest(".table-scroll").classList.toggle("is-empty", state.connections.length === 0);
     setHidden(el("connections-loading"), true);
     setHidden(el("connections-empty"), state.connections.length !== 0);
-    const count = state.connections.length;
-    el("connections-count").textContent = `${count} ${pluralize(count, ["подключение", "подключения", "подключений"])}`;
+    el("connections-count").textContent = page.total === 0 ? "0 подключений" : `${page.start + 1}–${page.end} из ${page.total}`;
   }
 
   async function loadConnections(force = false) {
@@ -590,6 +607,8 @@
   }
 
   el("connections-refresh").addEventListener("click", () => loadConnections(true));
+  el("connections-prev").addEventListener("click", () => { state.connectionsPage -= 1; renderConnections(); });
+  el("connections-next").addEventListener("click", () => { state.connectionsPage += 1; renderConnections(); });
   connectionsTableBody.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='disconnect']");
     if (!button) return;
@@ -628,9 +647,10 @@
   function renderJournal() {
     const filter = el("journal-filter").value;
     const events = filter === "all" ? state.journal : state.journal.filter((item) => item.event === filter);
+    const page = pageSlice(events, "journalPage", "journal");
     journalTableBody.replaceChildren();
     const fragment = document.createDocumentFragment();
-    events.forEach((item) => {
+    page.items.forEach((item) => {
       const row = document.createElement("tr");
       const occurred = document.createElement("td");
       occurred.textContent = formatDateTime(item.occurredAt);
@@ -660,8 +680,7 @@
     journalTableBody.closest(".table-scroll").classList.toggle("is-empty", events.length === 0);
     setHidden(el("journal-loading"), true);
     setHidden(el("journal-empty"), events.length !== 0);
-    const count = events.length;
-    el("journal-count").textContent = `${count} ${pluralize(count, ["событие", "события", "событий"])}`;
+    el("journal-count").textContent = page.total === 0 ? "0 событий" : `${page.start + 1}–${page.end} из ${page.total}`;
   }
 
   async function loadJournal(force = false) {
@@ -684,7 +703,9 @@
   }
 
   el("journal-refresh").addEventListener("click", () => loadJournal(true));
-  el("journal-filter").addEventListener("change", renderJournal);
+  el("journal-filter").addEventListener("change", () => { state.journalPage = 1; renderJournal(); });
+  el("journal-prev").addEventListener("click", () => { state.journalPage -= 1; renderJournal(); });
+  el("journal-next").addEventListener("click", () => { state.journalPage += 1; renderJournal(); });
 
   function openModal(modalId) {
     if (!state.activeModal) {

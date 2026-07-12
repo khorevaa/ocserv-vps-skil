@@ -1145,11 +1145,47 @@ tbody tr:hover {
 
 .table-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   padding: 12px 20px;
   color: var(--muted);
   border-top: 1px solid var(--border);
   font-size: 14px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pagination-button {
+  min-height: 32px;
+  padding: 0 11px;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pagination-button:hover:not(:disabled) {
+  color: var(--blue);
+  border-color: var(--blue);
+}
+
+.pagination-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.pagination-page {
+  min-width: 48px;
+  color: var(--muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .modal-backdrop {
