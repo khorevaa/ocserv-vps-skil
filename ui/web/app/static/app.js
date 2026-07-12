@@ -470,6 +470,7 @@
       fragment.appendChild(row);
     });
     usersTableBody.appendChild(fragment);
+    usersTableBody.closest(".table-scroll").classList.toggle("is-empty", visibleUsers.length === 0);
 
     setHidden(el("users-loading"), true);
     setHidden(el("users-empty"), visibleUsers.length > 0);
@@ -562,6 +563,7 @@
       fragment.appendChild(row);
     });
     connectionsTableBody.appendChild(fragment);
+    connectionsTableBody.closest(".table-scroll").classList.toggle("is-empty", state.connections.length === 0);
     setHidden(el("connections-loading"), true);
     setHidden(el("connections-empty"), state.connections.length !== 0);
     const count = state.connections.length;
@@ -655,6 +657,7 @@
       fragment.appendChild(row);
     });
     journalTableBody.appendChild(fragment);
+    journalTableBody.closest(".table-scroll").classList.toggle("is-empty", events.length === 0);
     setHidden(el("journal-loading"), true);
     setHidden(el("journal-empty"), events.length !== 0);
     const count = events.length;

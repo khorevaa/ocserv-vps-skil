@@ -519,8 +519,16 @@ svg {
 .theme-control select {
   max-width: 132px;
   height: 30px;
+  padding: 0 24px 0 4px;
+  font-weight: 600;
   border: 0;
   background: transparent;
+}
+
+.theme-control option {
+  color: #1c3048;
+  background: #ffffff;
+  font-weight: 600;
 }
 
 .operator-name {
@@ -782,6 +790,24 @@ svg {
   font-size: 13px;
 }
 
+.service-stat--link {
+  color: inherit;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.service-stat--link:hover {
+  background: var(--blue-soft);
+  box-shadow: 0 0 0 10px var(--blue-soft);
+  transform: translateY(-1px);
+}
+
+.service-stat--link:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--blue) 35%, transparent);
+  outline-offset: 8px;
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -938,6 +964,14 @@ svg {
   position: relative;
   min-height: 300px;
   overflow-x: auto;
+}
+
+.table-scroll.is-empty {
+  overflow: hidden;
+}
+
+.table-scroll.is-empty table {
+  min-width: 100%;
 }
 
 table {
