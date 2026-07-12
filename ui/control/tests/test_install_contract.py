@@ -149,6 +149,12 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertIn("print_ui_access_info_if_installed", remote)
         self.assertNotIn("docker.sock", remote)
 
+    def test_navigation_refreshes_server_backed_views(self) -> None:
+        repository = pathlib.Path(__file__).resolve().parents[3]
+        app = (repository / "ui" / "web" / "app" / "static" / "app.js").read_text(encoding="utf-8")
+        for call in ("loadOverview(true)", "loadUsers(true)", "loadConnections(true)", "loadJournal(true)"):
+            self.assertIn(call, app)
+
     def test_installer_reserves_and_validates_host_identity_transactionally(self) -> None:
         repository = pathlib.Path(__file__).resolve().parents[3]
         remote_installer = (

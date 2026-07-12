@@ -253,10 +253,10 @@
     document.title = `${titles[nextView]} — ocserv VPN Server`;
     closeSidebar();
 
-    if (nextView === "users") loadUsers();
-    else if (nextView === "connections") loadConnections();
-    else if (nextView === "journal") loadJournal();
-    else loadOverview();
+    if (nextView === "users") loadUsers(true);
+    else if (nextView === "connections") loadConnections(true);
+    else if (nextView === "journal") loadJournal(true);
+    else loadOverview(true);
   }
 
   document.querySelectorAll("[data-view]").forEach((link) => {
