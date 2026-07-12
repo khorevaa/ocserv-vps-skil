@@ -11,9 +11,26 @@ Internet
                               `-- /etc/letsencrypt -> /etc/letsencrypt (read-only)
 
 VPN client subnet --> host forwarding --> public interface --> NAT masquerade
+
+Browser -- HTTP ocserv-<32hex>.localhost:8765
+  `--> OpenSSH local TCP forward --> VPS /run/ocserv-ui-web/web.sock
+                                        `--> ocserv-ui container (network_mode: none)
+                                               `--> /run/ocserv-ui/control.sock
+                                                      `--> ocserv-control container (network_mode: none)
 ```
 
 Use `network_mode: host` because ocserv requires both TCP/TLS and UDP/DTLS and creates tunnel interfaces. Docker port publishing and an HTTP reverse proxy are not part of the default data path.
+
+The management web container has a separate isolation model: it has no network
+namespace connectivity and publishes no TCP port. OpenSSH forwards directly to
+its dedicated Unix socket. Do not add a loopback `8080` mapping, an internal
+Docker network, or network access to either UI container.
+
+The UI path does not use nginx. The VPS has no UI TCP listener. OpenSSH maps
+controller `127.0.0.1:8765` directly to the remote socket; the browser opens
+the exact `http://ocserv-<32hex>.localhost:8765` origin stored in `ui.env` while
+the authenticated SSH session remains active. Literal `http://localhost:8765`
+is not an allowed origin.
 
 The container receives only `NET_ADMIN`, `NET_RAW`, and `/dev/net/tun`; do not switch to `privileged: true` without a reviewed requirement.
 
@@ -24,6 +41,32 @@ The container receives only `NET_ADMIN`, `NET_RAW`, and `/dev/net/tun`; do not s
 - `/opt/ocserv-vps/state`: current and previous versions/images
 - `/opt/ocserv-vps/config/ocserv.conf`: generated configuration
 - `/opt/ocserv-vps/config/ocpasswd`: mode `0600` password database
+- `/opt/ocserv-vps/compose.ui.yaml` and `ui.env`: optional UI Compose override, image tags, generated `ocserv-<32hex>.localhost` hostname, and local port
+- `/opt/ocserv-vps/ui-data/state.json`: atomically replaced Go session/audit state; only hashes are persisted
+- `/opt/ocserv-vps/ui-secrets`: root-owned persistent session key and access secret
+- `/opt/ocserv-vps/ui-public`: public certificate chain and state mirror exposed read-only to control
+- `/run/ocserv-ui-web/web.sock`: ephemeral SSH-to-web Unix socket; directory owner `10001:10001` mode `0700`, socket mode `0600`
+- `/opt/ocserv-vps/locks/lifecycle.lock`: serializes CLI install/deploy/rollback work
+- `/opt/ocserv-vps/locks/operation.lock`: serializes password mutations across CLI and UI
+
+Both UI containers use `network_mode: none`. The unprivileged web container is
+reachable only through `/run/ocserv-ui-web/web.sock` and reaches the control
+sidecar only through the separate `/run/ocserv-ui/control.sock` shared volume.
+Both processes are compiled Go binaries; neither image installs Python or
+SQLite. The scratch control runtime copies only the exact `occtl`, `ocpasswd`,
+and linked libraries from the matching ocserv image and executes the tools
+with fixed argument vectors.
+
+Host user and group `ocserv-ui-host` reserve UID/GID `10001`. The user is
+locked, has `/usr/sbin/nologin`, home `/nonexistent`, and no supplementary
+groups. Installation refuses any name, UID, GID, or primary-group collision.
+Rollback deletes this identity only if the failed transaction created it and
+its complete identity still matches, deleting the user before the group.
+
+The networkless root control sidecar drops every capability except
+`DAC_OVERRIDE`. Ocserv creates `occtl.sock` as `ocserv:ocserv` mode `0711`, so
+the sidecar needs that single capability to connect. It still has no Docker
+socket, Internet/network namespace, host root mount, or arbitrary-command API.
 - `/opt/ocserv-vps/images/<version>-<sha>/`: pulled image reference, labels, and local image ID
 - container `/run/ocserv`: root-owned tmpfs mode `0755`; sec-mod socket permissions still control access while unprivileged workers can traverse the directory
 - `/opt/ocserv-vps/bin/apply-network.sh`: idempotent network/firewall implementation
@@ -59,9 +102,16 @@ The IPv6 input chain permits established traffic, loopback, SSH, HTTP, and ICMPv
 
 The bootstrap requires `--approve-firewall` because the restrictive input chain can block pre-existing services. Preserve independent SSH access until client testing succeeds.
 
+UI installation does not modify this policy and must not install a UI-specific
+firewall chain, rule, script, or systemd service. The VPS has no UI listener;
+OpenSSH forwards controller loopback directly to the remote Unix socket.
+
 ## Certificates
 
 Default mode uses Certbot standalone on TCP 80. `--prepare-nginx` instead creates an nginx port-80 ACME webroot site for the VPN domain. Both modes mount `/etc/letsencrypt` read-only into the container.
+
+This optional nginx/ACME configuration is independent of the management UI.
+The UI does not terminate TLS or alter certificate renewal.
 
 The deploy hook sends `SIGHUP` to the container after renewal and falls back to a restart.
 

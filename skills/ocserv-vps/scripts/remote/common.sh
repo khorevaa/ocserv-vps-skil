@@ -7,11 +7,25 @@ OCSERV_STACK_ROOT="/opt/ocserv-vps"
 OCSERV_CONFIG_DIR="${OCSERV_STACK_ROOT}/config"
 OCSERV_COMPOSE_FILE="${OCSERV_STACK_ROOT}/compose.yaml"
 OCSERV_ENV_FILE="${OCSERV_STACK_ROOT}/stack.env"
+OCSERV_UI_COMPOSE_FILE="${OCSERV_STACK_ROOT}/compose.ui.yaml"
+OCSERV_UI_ENV_FILE="${OCSERV_STACK_ROOT}/ui.env"
+OCSERV_UI_PUBLIC_DIR="${OCSERV_STACK_ROOT}/ui-public"
+OCSERV_UI_WEB_RUN_DIR="/run/ocserv-ui-web"
+OCSERV_UI_WEB_SOCKET="${OCSERV_UI_WEB_RUN_DIR}/web.sock"
+OCSERV_UI_TMPFILES_FILE="/etc/tmpfiles.d/ocserv-vps-ui.conf"
+OCSERV_UI_ACCESS_INFO_SCRIPT="/usr/local/sbin/ocserv-ui-access-info"
+OCSERV_UI_HOST_USER="ocserv-ui-host"
+OCSERV_UI_HOST_GROUP="ocserv-ui-host"
+OCSERV_UI_HOST_UID="10001"
+OCSERV_UI_HOST_GID="10001"
+OCSERV_UI_HOST_HOME="/nonexistent"
+OCSERV_UI_HOST_SHELL="/usr/sbin/nologin"
 OCSERV_STATE_FILE="${OCSERV_STACK_ROOT}/state"
 OCSERV_IMAGE_ROOT="${OCSERV_STACK_ROOT}/images"
 OCSERV_BIN_DIR="${OCSERV_STACK_ROOT}/bin"
 OCSERV_BACKUP_ROOT="/var/backups/ocserv-vps"
-OCSERV_LOCK="/run/lock/ocserv-vps.lock"
+OCSERV_LIFECYCLE_LOCK="${OCSERV_STACK_ROOT}/locks/lifecycle.lock"
+OCSERV_LOCK="${OCSERV_STACK_ROOT}/locks/operation.lock"
 OCSERV_CONTAINER="ocserv-vps"
 OCSERV_NETWORK_SCRIPT="${OCSERV_BIN_DIR}/apply-network.sh"
 OCSERV_NETWORK_SERVICE="/etc/systemd/system/ocserv-vps-network.service"
@@ -22,16 +36,103 @@ die() { printf '[ocserv-vps] ERROR: %s\n' "$*" >&2; exit 1; }
 require_root() { [[ "${EUID}" -eq 0 ]] || die 'Run the remote script as root.'; }
 require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
 
+ui_host_identity_is_absent() {
+  local passwd_entries group_entries
+  passwd_entries="$(getent passwd)" || return 2
+  group_entries="$(getent group)" || return 2
+  if awk -F: -v name="${OCSERV_UI_HOST_USER}" -v uid="${OCSERV_UI_HOST_UID}" \
+       '$1 == name || $1 == uid || $3 == uid {found=1} END {exit(found ? 0 : 1)}' <<<"${passwd_entries}"; then
+    return 1
+  fi
+  if awk -F: -v name="${OCSERV_UI_HOST_GROUP}" -v gid="${OCSERV_UI_HOST_GID}" \
+       '$1 == name || $1 == gid || $3 == gid {found=1} END {exit(found ? 0 : 1)}' <<<"${group_entries}"; then
+    return 1
+  fi
+  return 0
+}
+
+ui_host_group_is_exact() {
+  local group_entry group_by_gid group_entries
+  group_entry="$(getent group "${OCSERV_UI_HOST_GROUP}" 2>/dev/null)" || return 1
+  group_by_gid="$(getent group "${OCSERV_UI_HOST_GID}" 2>/dev/null)" || return 1
+  [[ "${group_entry}" == "${group_by_gid}" ]] || return 1
+  group_entries="$(getent group)" || return 1
+  awk -F: -v name="${OCSERV_UI_HOST_GROUP}" -v gid="${OCSERV_UI_HOST_GID}" '
+    $3 == gid {
+      count++
+      if ($1 != name || $4 != "") bad=1
+    }
+    END {exit(count == 1 && !bad ? 0 : 1)}
+  ' <<<"${group_entries}"
+}
+
+ui_host_user_is_exact() {
+  local passwd_entry passwd_by_uid shadow_entry passwd_entries supplementary_groups
+  passwd_entry="$(getent passwd "${OCSERV_UI_HOST_USER}" 2>/dev/null)" || return 1
+  passwd_by_uid="$(getent passwd "${OCSERV_UI_HOST_UID}" 2>/dev/null)" || return 1
+  [[ "${passwd_entry}" == "${passwd_by_uid}" ]] || return 1
+  awk -F: \
+    -v name="${OCSERV_UI_HOST_USER}" \
+    -v uid="${OCSERV_UI_HOST_UID}" \
+    -v gid="${OCSERV_UI_HOST_GID}" \
+    -v home="${OCSERV_UI_HOST_HOME}" \
+    -v shell="${OCSERV_UI_HOST_SHELL}" \
+    'NR == 1 && $1 == name && $3 == uid && $4 == gid && $6 == home && $7 == shell {ok=1} END {exit(ok ? 0 : 1)}' \
+    <<<"${passwd_entry}" || return 1
+
+  shadow_entry="$(getent shadow "${OCSERV_UI_HOST_USER}" 2>/dev/null)" || return 1
+  awk -F: -v name="${OCSERV_UI_HOST_USER}" \
+    'NR == 1 && $1 == name && $2 ~ /^[!*]/ {ok=1} END {exit(ok ? 0 : 1)}' \
+    <<<"${shadow_entry}" || return 1
+
+  supplementary_groups="$(id -G "${OCSERV_UI_HOST_USER}" 2>/dev/null)" || return 1
+  [[ "${supplementary_groups}" == "${OCSERV_UI_HOST_GID}" ]] || return 1
+  passwd_entries="$(getent passwd)" || return 1
+  if awk -F: -v name="${OCSERV_UI_HOST_USER}" -v uid="${OCSERV_UI_HOST_UID}" -v gid="${OCSERV_UI_HOST_GID}" \
+       '($3 == uid || $4 == gid) && $1 != name {found=1} END {exit(found ? 0 : 1)}' \
+       <<<"${passwd_entries}"; then
+    return 1
+  fi
+  return 0
+}
+
+ui_host_identity_is_exact() {
+  ui_host_group_is_exact && ui_host_user_is_exact
+}
+
+acquire_mutation_lock() {
+  local timeout_seconds="${1:-0}"
+  exec 8>"${OCSERV_LOCK}"
+  if (( timeout_seconds > 0 )); then
+    flock -w "${timeout_seconds}" 8
+  else
+    flock -n 8
+  fi
+}
+
+release_mutation_lock() {
+  flock -u 8 >/dev/null 2>&1 || true
+  exec 8>&-
+}
+
+acquire_stack_locks() {
+  install -d -m 0750 "$(dirname "${OCSERV_LOCK}")"
+  exec 9>"${OCSERV_LIFECYCLE_LOCK}"
+  flock -n 9 || die 'Another ocserv VPS lifecycle operation is running.'
+  acquire_mutation_lock || die 'Another ocserv VPS mutation is running.'
+}
+
 validate_version() {
   [[ "$1" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] || die "Unsafe version value: $1"
 }
 
 validate_domain() {
-  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ && "$1" == *.* ]] || die "Invalid public domain: $1"
+  [[ "$1" == "${1,,}" && "$1" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ && "$1" == *.* ]] || \
+    die "Invalid public domain: $1 (use canonical lowercase)"
 }
 
 validate_username() {
-  [[ "$1" =~ ^[A-Za-z0-9_.@-]{1,64}$ ]] || die "Unsafe username: $1"
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$ ]] || die "Unsafe username: $1"
 }
 
 validate_port() {
@@ -68,7 +169,7 @@ state_get() {
 write_state() {
   local current_version="$1" current_image="$2" previous_version="$3" previous_image="$4"
   local domain="$5" vpn_network="$6" vpn_port="$7" source_sha256="$8" last_backup="$9"
-  local temp
+  local temp mirror_temp
   install -d -m 0750 "${OCSERV_STACK_ROOT}"
   temp="$(mktemp "${OCSERV_STACK_ROOT}/state.XXXXXX")"
   cat > "${temp}" <<EOF
@@ -86,6 +187,18 @@ updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
   chmod 0640 "${temp}"
   mv -f "${temp}" "${OCSERV_STATE_FILE}"
+  if [[ -d "${OCSERV_UI_PUBLIC_DIR}" ]]; then
+    mirror_temp=""
+    if mirror_temp="$(mktemp "${OCSERV_UI_PUBLIC_DIR}/state.XXXXXX")" && \
+       cp "${OCSERV_STATE_FILE}" "${mirror_temp}" && \
+       chmod 0644 "${mirror_temp}" && \
+       mv -f "${mirror_temp}" "${OCSERV_UI_PUBLIC_DIR}/state"; then
+      :
+    else
+      [[ -z "${mirror_temp}" ]] || rm -f "${mirror_temp}"
+      warn 'Authoritative state was updated, but the UI state mirror could not be refreshed.'
+    fi
+  fi
 }
 
 write_stack_env() {
@@ -97,7 +210,18 @@ write_stack_env() {
 }
 
 compose() {
-  docker compose --project-directory "${OCSERV_STACK_ROOT}" --env-file "${OCSERV_ENV_FILE}" -f "${OCSERV_COMPOSE_FILE}" "$@"
+  local -a compose_args=(
+    --project-directory "${OCSERV_STACK_ROOT}"
+    --env-file "${OCSERV_ENV_FILE}"
+    -f "${OCSERV_COMPOSE_FILE}"
+  )
+  if [[ -f "${OCSERV_UI_ENV_FILE}" ]]; then
+    compose_args+=(--env-file "${OCSERV_UI_ENV_FILE}")
+  fi
+  if [[ -f "${OCSERV_UI_COMPOSE_FILE}" ]]; then
+    compose_args+=(-f "${OCSERV_UI_COMPOSE_FILE}")
+  fi
+  docker compose "${compose_args[@]}" "$@"
 }
 
 render_compose_file() {
@@ -116,6 +240,7 @@ services:
     volumes:
       - ./config:/etc/ocserv:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ocserv-control-run:/run/ocserv-control
     tmpfs:
       - /run/ocserv:mode=0755
     restart: unless-stopped
@@ -126,6 +251,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+volumes:
+  ocserv-control-run:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=16m,mode=0755
 EOF
   chmod 0640 "${OCSERV_COMPOSE_FILE}"
 }
@@ -220,7 +352,11 @@ EOF
 test_image_config() {
   local image="$1" help_text
   help_text="$(docker run --rm --entrypoint /usr/local/sbin/ocserv "${image}" --help 2>&1 || true)"
-  local -a mounts=(-v "${OCSERV_CONFIG_DIR}:/etc/ocserv:ro" -v "/etc/letsencrypt:/etc/letsencrypt:ro")
+  local -a mounts=(
+    -v "${OCSERV_CONFIG_DIR}:/etc/ocserv:ro"
+    -v "/etc/letsencrypt:/etc/letsencrypt:ro"
+    --tmpfs /run/ocserv-control:rw,noexec,nosuid,size=1m,mode=0755
+  )
   if grep -q -- '--test-config' <<<"${help_text}"; then
     docker run --rm --network none --entrypoint /usr/local/sbin/ocserv "${mounts[@]}" "${image}" --test-config --config=/etc/ocserv/ocserv.conf
   elif grep -Eq '(^|[[:space:],])-t([[:space:],]|$)' <<<"${help_text}"; then
@@ -258,6 +394,45 @@ health_check_stack() {
   return 1
 }
 
+require_ui_control_compatibility() {
+  local expected_ocserv_image="$1" control_image configured_ocserv_image
+  [[ -f "${OCSERV_UI_COMPOSE_FILE}" && -f "${OCSERV_UI_ENV_FILE}" ]] || return 0
+  control_image="$(awk -F= '$1 == "OCSERV_CONTROL_IMAGE" {print substr($0, index($0, "=") + 1)}' "${OCSERV_UI_ENV_FILE}" | tail -n 1)"
+  [[ -n "${control_image}" ]] || die 'Managed UI control image is missing from ui.env.'
+  docker image inspect "${control_image}" >/dev/null 2>&1 || \
+    die "Managed UI control image is not available locally: ${control_image}"
+  configured_ocserv_image="$(docker image inspect --format '{{ index .Config.Labels "org.ocserv-vps.ocserv-image" }}' "${control_image}")"
+  [[ "${configured_ocserv_image}" == "${expected_ocserv_image}" ]] || \
+    die "Installed UI control image targets ${configured_ocserv_image:-unknown}, not ${expected_ocserv_image}; publish and install a compatible UI release first."
+}
+
+health_check_ui_stack() {
+  local timeout_seconds="$1" deadline control_health web_health web_network web_ports
+  [[ -f "${OCSERV_UI_COMPOSE_FILE}" && -f "${OCSERV_UI_ENV_FILE}" ]] || return 0
+  deadline=$((SECONDS + timeout_seconds))
+  while (( SECONDS < deadline )); do
+    control_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ocserv-vps-control 2>/dev/null || true)"
+    web_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ocserv-vps-ui 2>/dev/null || true)"
+    web_network="$(docker inspect --format '{{.HostConfig.NetworkMode}}' ocserv-vps-ui 2>/dev/null || true)"
+    web_ports="$(docker inspect --format '{{json .HostConfig.PortBindings}}' ocserv-vps-ui 2>/dev/null || true)"
+    if ui_host_identity_is_exact && \
+       [[ "${control_health}" == 'healthy' && "${web_health}" == 'healthy' && \
+          "${web_network}" == 'none' && ( "${web_ports}" == 'null' || "${web_ports}" == '{}' ) && \
+          -d "${OCSERV_UI_WEB_RUN_DIR}" && ! -L "${OCSERV_UI_WEB_RUN_DIR}" && \
+          "$(stat -c '%u:%g %a' "${OCSERV_UI_WEB_RUN_DIR}" 2>/dev/null || true)" == '10001:10001 700' && \
+          -S "${OCSERV_UI_WEB_SOCKET}" && ! -L "${OCSERV_UI_WEB_SOCKET}" && \
+          "$(stat -c '%u:%g %a' "${OCSERV_UI_WEB_SOCKET}" 2>/dev/null || true)" == '10001:10001 600' ]]; then
+      info 'UI control and owner-only Unix-socket web health checks passed; no UI ports are published.'
+      return 0
+    fi
+    sleep 1
+  done
+  warn 'Managed UI health check failed.'
+  docker logs --tail 100 ocserv-vps-control >&2 2>/dev/null || true
+  docker logs --tail 100 ocserv-vps-ui >&2 2>/dev/null || true
+  return 1
+}
+
 render_ocserv_config() {
   local domain="$1" vpn_network="$2" vpn_port="$3" dns_primary="$4" dns_secondary="$5"
   install -d -m 0750 "${OCSERV_CONFIG_DIR}"
@@ -269,7 +444,7 @@ listen-host = 0.0.0.0
 run-as-user = ocserv
 run-as-group = ocserv
 socket-file = /run/ocserv/ocserv.sock
-occtl-socket-file = /run/ocserv/occtl.sock
+occtl-socket-file = /run/ocserv-control/occtl.sock
 server-cert = /etc/letsencrypt/live/${domain}/fullchain.pem
 server-key = /etc/letsencrypt/live/${domain}/privkey.pem
 isolate-workers = true
@@ -532,12 +707,93 @@ EOF
   systemctl enable --now ocserv-vps-network.service
 }
 
+render_ui_access_info_script() {
+  local temporary
+  install -d -m 0755 /usr/local/sbin
+  temporary="$(mktemp /usr/local/sbin/.ocserv-ui-access-info.XXXXXX)"
+  cat >"${temporary}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+[[ "${EUID}" -eq 0 ]] || { printf '%s\n' 'Run this command as root.' >&2; exit 1; }
+[[ $# -eq 0 ]] || { printf '%s\n' 'Usage: ocserv-ui-access-info' >&2; exit 2; }
+
+stack_root=/opt/ocserv-vps
+ui_env="${stack_root}/ui.env"
+state_file="${stack_root}/state"
+secret_file="${stack_root}/ui-secrets/access-secret"
+remote_socket=/run/ocserv-ui-web/web.sock
+
+for path in "${ui_env}" "${state_file}" "${secret_file}"; do
+  [[ -f "${path}" && ! -L "${path}" ]] || {
+    printf 'Required managed file is missing or unsafe: %s\n' "${path}" >&2
+    exit 1
+  }
+done
+[[ "$(stat -c '%u:%g %a' "${secret_file}")" == '0:10001 440' ]] || {
+  printf '%s\n' 'The UI access secret has unsafe ownership or permissions.' >&2
+  exit 1
+}
+
+read_unique_value() {
+  local file="$1" key="$2" value count
+  count="$(awk -F= -v wanted="${key}" '$1 == wanted {count++} END {print count+0}' "${file}")"
+  [[ "${count}" == 1 ]] || {
+    printf 'Expected exactly one %s entry in %s.\n' "${key}" "${file}" >&2
+    exit 1
+  }
+  value="$(awk -F= -v wanted="${key}" '$1 == wanted {print substr($0, index($0, "=") + 1)}' "${file}")"
+  printf '%s' "${value}"
+}
+
+browser_host="$(read_unique_value "${ui_env}" OCSERV_UI_LOCAL_HOST)"
+local_port="$(read_unique_value "${ui_env}" OCSERV_UI_LOCAL_PORT)"
+ssh_port="$(awk -F= '$1 == "OCSERV_UI_SSH_PORT" {print substr($0, index($0, "=") + 1); found++} END {if (found > 1) exit 1}' "${ui_env}")" || {
+  printf '%s\n' 'OCSERV_UI_SSH_PORT is duplicated in ui.env.' >&2
+  exit 1
+}
+ssh_port="${ssh_port:-22}"
+domain="$(read_unique_value "${state_file}" domain)"
+secret="$(<"${secret_file}")"
+
+[[ "${browser_host}" =~ ^ocserv-[0-9a-f]{32}\.localhost$ ]] || {
+  printf '%s\n' 'The managed browser hostname is unsafe.' >&2; exit 1;
+}
+for value in "${local_port}" "${ssh_port}"; do
+  [[ "${value}" =~ ^[0-9]+$ && "${value}" -ge 1 && "${value}" -le 65535 ]] || {
+    printf '%s\n' 'A managed port is invalid.' >&2; exit 1;
+  }
+done
+[[ "${domain}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] || {
+  printf '%s\n' 'The managed VPN domain is unsafe.' >&2; exit 1;
+}
+[[ "${secret}" =~ ^[0-9a-f]{64}$ ]] || {
+  printf '%s\n' 'The managed UI access secret is invalid.' >&2; exit 1;
+}
+
+printf '%s\n' 'Sensitive UI access data follows. Do not paste it into logs or chat.'
+printf '\nUI URL:\nhttp://%s:%s/\n' "${browser_host}" "${local_port}"
+printf '\nAccess secret:\n%s\n' "${secret}"
+printf '\nSSH tunnel command (run on your computer):\n'
+printf 'ssh -p %s -N -T -L localhost:%s:%s root@%s\n' \
+  "${ssh_port}" "${local_port}" "${remote_socket}" "${domain}"
+EOF
+  chmod 0700 "${temporary}"
+  chown root:root "${temporary}"
+  mv -T "${temporary}" "${OCSERV_UI_ACCESS_INFO_SCRIPT}"
+}
+
 create_stack_backup() {
   local label="$1" timestamp backup path
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup="${OCSERV_BACKUP_ROOT}/${timestamp}-${label}"
   install -d -m 0700 "${backup}"
-  for path in "${OCSERV_ENV_FILE}" "${OCSERV_STATE_FILE}" "${OCSERV_COMPOSE_FILE}"; do [[ ! -f "${path}" ]] || cp -a "${path}" "${backup}/"; done
+  for path in \
+    "${OCSERV_ENV_FILE}" "${OCSERV_STATE_FILE}" "${OCSERV_COMPOSE_FILE}" \
+    "${OCSERV_UI_ENV_FILE}" "${OCSERV_UI_COMPOSE_FILE}"; do
+    [[ ! -f "${path}" ]] || cp -a "${path}" "${backup}/"
+  done
   [[ ! -d "${OCSERV_CONFIG_DIR}" ]] || tar -C "${OCSERV_STACK_ROOT}" -cpf "${backup}/config.tar" config
   LAST_BACKUP="${backup}"
 }

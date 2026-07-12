@@ -89,6 +89,20 @@ The probe removes its namespace, veth pair, password file, and temporary user th
 
 Keep the temporary executable `vpnc-script` wrapper under `/opt/ocserv-vps/bin`, not `/run`: Ubuntu may mount `/run` with `noexec`. Password and PID files remain under `/run`.
 
+For the controller-side WSL test, start a WSL shell and pipe the password from
+Linux. Do not pipe a password from Windows PowerShell directly into `wsl.exe`:
+some Windows PowerShell versions prepend an UTF-8 BOM to native stdin, changing
+the password bytes. If automation must cross that boundary, write a BOM-free
+file with user-only permissions, copy it to a root-only file under WSL `/run`,
+redirect the test script's stdin from that file, and remove both copies in an
+exit/finally handler. Never print the password while diagnosing this case.
+
+Repeated failed probes can trigger ocserv's IP ban before authentication. Use
+`occtl show ip bans` and `occtl show ip ban points` to distinguish a ban from a
+bad password. Remove only the controller's confirmed IP with `occtl unban ip`
+or wait for expiry; a restart resets in-memory test points but should not replace
+normal ban handling.
+
 ## Firewall lockout
 
 Keep the original SSH session open during bootstrap. The managed input chain allows only the configured SSH port, HTTP/ACME, VPN TCP/UDP, ICMP, loopback, and established traffic.
@@ -96,6 +110,33 @@ Keep the original SSH session open during bootstrap. The managed input chain all
 If preflight found a nonstandard SSH port, pass the same value to `--ssh-port`. Do not guess.
 
 Bootstrap snapshots iptables/ip6tables before applying its chains and restores them when bootstrap fails. The snapshot path is printed in operation output and stored under `/var/backups/ocserv-vps`.
+
+## UI unavailable
+
+Run `scripts/ui-status.sh` first. Require both `ocserv-vps-ui` and
+`ocserv-vps-control` to be healthy, `/run/ocserv-ui-web/web.sock` to be owned by
+UID/GID `10001` with mode `0600`, and no UI TCP port to be published. Confirm
+the SSH local forward is still running and open the exact randomized
+`http://ocserv-<32hex>.localhost:<port>/` origin from `ui.env`; literal
+`localhost` is rejected intentionally.
+
+If overview or user operations return `control_unavailable`, inspect the two
+dedicated runtime volumes and the control container log. The web container must
+connect to `/run/ocserv-ui/control.sock` as UID `10001`; the control container
+must reach `/run/ocserv-control/occtl.sock`. Never fix this by mounting the
+Docker socket or the whole `/run/ocserv` directory into the web container.
+
+If the access form rejects the stored secret, retrieve the current root-only
+handoff if it still exists. Otherwise run
+`scripts/rotate-ui-access.sh --approve-restart`; do not copy the persistent
+`/opt/ocserv-vps/ui-secrets/access-secret` file into chat, shell arguments, or
+logs. Rotation invalidates old access secrets and cookies but preserves UI
+operators, VPN users, and the ocserv data path.
+
+If the browser loses the response after creating a user, refresh the user list.
+When the username exists but its one-time password was not received, rotate that
+user's password and save the newly returned value. Plaintext VPN passwords are
+never persisted for later retrieval, so repeating `add` cannot recover it.
 
 ## Upgrade or rollback failure
 

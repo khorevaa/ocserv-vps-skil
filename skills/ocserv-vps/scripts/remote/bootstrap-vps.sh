@@ -66,9 +66,7 @@ case "${OS_ID}" in debian|ubuntu) ;; *) die "Unsupported OS: ${OS_ID:-unknown}" 
 [[ ! -e "${OCSERV_STATE_FILE}" ]] || die 'Managed ocserv stack already exists. Use deploy-release.sh for upgrades.'
 [[ "$(docker inspect --format '{{.State.Running}}' "${OCSERV_CONTAINER}" 2>/dev/null || true)" != "true" ]] || die 'Container ocserv-vps is already running.'
 
-install -d -m 0755 "$(dirname "${OCSERV_LOCK}")"
-exec 9>"${OCSERV_LOCK}"
-flock -n 9 || die 'Another ocserv VPS operation is running.'
+acquire_stack_locks
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update

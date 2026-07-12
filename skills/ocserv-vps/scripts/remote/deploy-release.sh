@@ -26,9 +26,7 @@ validate_registry_image "${IMAGE}"
 for command in docker flock ss; do require_command "${command}"; done
 docker compose version >/dev/null 2>&1 || die 'Docker Compose v2 is unavailable.'
 
-install -d -m 0755 "$(dirname "${OCSERV_LOCK}")"
-exec 9>"${OCSERV_LOCK}"
-flock -n 9 || die 'Another ocserv VPS operation is running.'
+acquire_stack_locks
 ensure_openconnect_probe_tools
 
 OLD_VERSION="$(state_get current_version)"
@@ -42,6 +40,7 @@ VPN_PORT="$(state_get vpn_port)"
 pull_verified_image "${IMAGE}" "${VERSION}"
 NEW_IMAGE="${RESOLVED_IMAGE}"
 test_image_config "${NEW_IMAGE}"
+require_ui_control_compatibility "${NEW_IMAGE}"
 create_stack_backup "deploy-${VERSION}"
 BACKUP_DIR="${LAST_BACKUP}"
 
@@ -49,12 +48,32 @@ ACTIVATION_COMMITTED="0"
 PROBE_USER_CREATED="0"
 PROBE_USERNAME=""
 restore_previous_image() {
+  local restore_failed=0
   warn "Restoring ${OLD_IMAGE}."
   set +e
-  write_stack_env "${OLD_IMAGE}"
-  compose up -d --remove-orphans >/dev/null 2>&1
-  health_check_stack "${OLD_IMAGE}" "${VPN_PORT}" "${HEALTH_TIMEOUT}" >/dev/null 2>&1
+  if ! write_stack_env "${OLD_IMAGE}"; then
+    warn 'Failed to restore the previous stack.env.'
+    restore_failed=1
+  fi
+  if ! compose up -d --remove-orphans >/dev/null 2>&1; then
+    warn 'Failed to reactivate the previous Compose stack.'
+    restore_failed=1
+  fi
+  if ! health_check_stack "${OLD_IMAGE}" "${VPN_PORT}" "${HEALTH_TIMEOUT}"; then
+    warn 'Previous VPN image failed health checks during restoration.'
+    restore_failed=1
+  fi
+  if ! health_check_ui_stack "${HEALTH_TIMEOUT}"; then
+    warn 'Managed UI failed health checks during restoration.'
+    restore_failed=1
+  fi
   set -e
+  if (( restore_failed != 0 )); then
+    warn "ROLLBACK FAILED; keep SSH open and inspect ${BACKUP_DIR}."
+    return 1
+  fi
+  warn 'Previous VPN/UI stack was restored and is healthy.'
+  return 0
 }
 on_exit() {
   local status=$?
@@ -63,7 +82,11 @@ on_exit() {
     delete_password_user "${NEW_IMAGE}" "${PROBE_USERNAME}" >/dev/null 2>&1 || warn "Failed to remove temporary probe user ${PROBE_USERNAME}."
     docker kill --signal HUP "${OCSERV_CONTAINER}" >/dev/null 2>&1 || true
   fi
-  if [[ "${status}" -ne 0 && "${ACTIVATION_COMMITTED}" != "1" ]]; then restore_previous_image || true; fi
+  if [[ "${status}" -ne 0 && "${ACTIVATION_COMMITTED}" != "1" ]]; then
+    if ! restore_previous_image; then
+      warn "Automatic rollback failed; backup: ${BACKUP_DIR}."
+    fi
+  fi
   exit "${status}"
 }
 trap on_exit EXIT
@@ -73,6 +96,7 @@ info "Activating ${NEW_IMAGE}; active VPN sessions will disconnect."
 write_stack_env "${NEW_IMAGE}"
 compose up -d --remove-orphans
 health_check_stack "${NEW_IMAGE}" "${VPN_PORT}" "${HEALTH_TIMEOUT}" || die 'New image failed health checks.'
+health_check_ui_stack "${HEALTH_TIMEOUT}" || die 'Managed UI failed health checks after ocserv activation.'
 PROBE_USERNAME="ocserv-check-$(openssl rand -hex 4)"
 create_password_user "${NEW_IMAGE}" "${PROBE_USERNAME}"
 PROBE_PASSWORD="${GENERATED_VPN_PASSWORD}"

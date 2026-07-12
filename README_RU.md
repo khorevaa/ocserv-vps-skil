@@ -21,8 +21,9 @@
 - проверка image ID, конфигурации и TCP/UDP listeners
 - обязательный реальный вход через OpenConnect и HTTPS-запрос через tunnel из изолированного network namespace после bootstrap, upgrade и rollback
 - controller-side OpenConnect-тест для Linux или WSL2
+- опциональная Dockerized-панель для обзора сервера, добавления пользователей и смены паролей
 - добавление пользователей со сгенерированными паролями, обновление образа и rollback
-- опциональная подготовка nginx на порту 80 для ACME и будущего UI без проксирования ocserv
+- опциональная подготовка nginx на порту 80 только для ACME, вне VPN и UI path
 
 Bootstrap меняет firewall и при ошибочном SSH-порте может оборвать доступ. Сохраняйте независимую SSH-сессию и сначала проверяйте dry-run.
 
@@ -50,6 +51,7 @@ $ocserv-vps разверни полностью настроенный Dockerize
 ## Основные сценарии
 
 - [Publish ocserv image](.github/workflows/publish-ocserv-image.yml): проверка source, сборка явного Dockerfile и push в GHCR
+- [Publish ocserv UI images](.github/workflows/publish-ui-images.yml): тестирование и публикация согласованных web/control images в GHCR
 - [`bootstrap-vps.sh`](skills/ocserv-vps/scripts/bootstrap-vps.sh): полная установка чистого VPS
 - [`preflight.sh`](skills/ocserv-vps/scripts/preflight.sh): read-only проверка хоста и stack
 - [`deploy-release.sh`](skills/ocserv-vps/scripts/deploy-release.sh): pull, активация и OpenConnect-проверка новой GHCR-версии
@@ -57,12 +59,39 @@ $ocserv-vps разверни полностью настроенный Dockerize
 - [`status.sh`](skills/ocserv-vps/scripts/status.sh): container, certificate, listeners, network и backups
 - [`add-user.sh`](skills/ocserv-vps/scripts/add-user.sh): создание password-пользователя
 - [`test-openconnect-client.sh`](skills/ocserv-vps/scripts/test-openconnect-client.sh): локальная Linux/WSL-проверка tunnel и HTTPS data path
+- [`install-ui.sh`](skills/ocserv-vps/scripts/install-ui.sh): транзакционная установка UI с Unix socket
+- [`ui-tunnel.sh`](skills/ocserv-vps/scripts/ui-tunnel.sh) / [`ui-tunnel.ps1`](skills/ocserv-vps/scripts/ui-tunnel.ps1): локальный SSH-туннель, который получает и показывает точный установленный random URL
+- [`rotate-ui-access.sh`](skills/ocserv-vps/scripts/rotate-ui-access.sh): ротация секрета UI и отзыв операторских сессий
+- [`ui-status.sh`](skills/ocserv-vps/scripts/ui-status.sh): состояние UI-контейнеров, приватного socket, tunnel contract и handoff
 
 Полная процедура и safety gates находятся в [`skills/ocserv-vps/SKILL.md`](skills/ocserv-vps/SKILL.md).
 
 ## nginx
 
-Nginx — опциональная подготовка под будущий UI. Флаг `--prepare-nginx` создаёт только ACME webroot site на порту 80. Ocserv продолжает напрямую занимать TCP и UDP VPN-порт; nginx не завершает TLS и не проксирует VPN-протокол.
+Nginx остаётся вне VPN и UI data path. Флаг `--prepare-nginx` создаёт только ACME webroot. Ocserv продолжает напрямую занимать TCP и UDP VPN-порт, а UI предоставляет на VPS только `/run/ocserv-ui-web/web.sock`.
+
+Лишённый сети UI-контейнер не публикует Docker-порт и не использует ни
+`127.0.0.1:8080`, ни внутреннюю Docker-сеть, ни nginx proxy.
+
+UI не публикуется в Интернет и не добавляет TCP listener, nginx-конфигурацию,
+firewall rule или service. Создайте туннель командой
+`ssh -N -L 127.0.0.1:8765:/run/ocserv-ui-web/web.sock root@vpn.example.com` и
+откройте точный `http://ocserv-<32hex>.localhost:8765/` из `ui.env` или
+root-only handoff. Не заменяйте его на `http://localhost:8765/`. Комплектные
+`ui-tunnel` helpers получают, проверяют и показывают установленный URL.
+
+Установка резервирует host UID/GID `10001` за locked nologin account и group
+`ocserv-ui-host`. Любая коллизия имени или числового ID прерывает транзакцию;
+rollback удаляет только созданную им неизменённую identity.
+
+MVP UI использует один отдельный секрет доступа. Панель показывает состояние сервера, сертификата, подключений и пользователей; позволяет добавлять VPN-пользователей и менять сгенерированные пароли с опциональным завершением сессий. Секрет вводится в отдельной форме, не помещается в URL и сразу обменивается на непрозрачную серверную сессию оператора сроком не более 12 часов.
+
+Оба сервиса UI собраны как Go-бинарники. Непривилегированный web-процесс
+хранит только версионированный JSON, а изолированный control-sidecar сохраняет
+фиксированный протокол Unix-сокета и вызывает `occtl`/`ocpasswd` без shell.
+В контейнерах нет Python, SQLite или отдельного сервиса базы данных.
+
+В root SSH-сессии команда `ocserv-ui-access-info` выводит точный локальный URL, текущий секрет и готовую команду SSH-туннеля. Её вывод является конфиденциальным.
 
 ## Публикация image
 

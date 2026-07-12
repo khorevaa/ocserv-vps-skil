@@ -15,9 +15,7 @@ validate_username "${USERNAME}"
 CURRENT_IMAGE="$(state_get current_image)"
 docker image inspect "${CURRENT_IMAGE}" >/dev/null 2>&1 || die "Current image is missing: ${CURRENT_IMAGE}"
 
-install -d -m 0755 "$(dirname "${OCSERV_LOCK}")"
-exec 9>"${OCSERV_LOCK}"
-flock -n 9 || die 'Another ocserv VPS operation is running.'
+acquire_stack_locks
 
 create_password_user "${CURRENT_IMAGE}" "${USERNAME}"
 CREDENTIAL_FILE="/root/ocserv-vps-user-${USERNAME}"

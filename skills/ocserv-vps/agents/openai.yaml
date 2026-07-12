@@ -1,7 +1,7 @@
 interface:
-  display_name: "ocserv VPS bootstrap"
-  short_description: "Build and operate a Dockerized ocserv VPS"
-  default_prompt: "Use $ocserv-vps to publish a verified ocserv image to GHCR and bootstrap or maintain a complete Dockerized ocserv VPN on Debian or Ubuntu with ACME, firewall/NAT, health checks, and rollback."
+  display_name: "ocserv VPS and UI"
+  short_description: "Deploy and manage Dockerized ocserv with UI"
+  default_prompt: "Use $ocserv-vps to deploy or maintain a verified Dockerized ocserv VPN and its secure management UI with ACME, firewall, health checks, and rollback."
 
 policy:
   allow_implicit_invocation: false

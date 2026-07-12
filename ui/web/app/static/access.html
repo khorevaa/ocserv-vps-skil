@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f7f9fc">
+  <title>Доступ к ocserv VPN Server</title>
+  <link rel="stylesheet" href="/static/access.css">
+  <script src="/static/access.js" defer></script>
+</head>
+<body>
+  <main class="access-page">
+    <section class="access-card" aria-labelledby="access-title">
+      <div class="access-brand">
+        <div class="access-mark" aria-hidden="true">VPN</div>
+        <div>
+          <p class="access-eyebrow">Защищённый доступ</p>
+          <h1 id="access-title">ocserv VPN Server</h1>
+        </div>
+      </div>
+      <p class="access-hint">Панель доступна только через SSH-туннель. Введите секрет доступа.</p>
+      <p id="access-error" class="access-error is-hidden" role="alert"></p>
+      <form id="access-form" novalidate>
+        <label>
+          <span>Секрет доступа</span>
+          <input id="access-secret" name="access_secret" type="password" autocomplete="off" required maxlength="256">
+        </label>
+        <button id="access-submit" type="submit">Продолжить</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

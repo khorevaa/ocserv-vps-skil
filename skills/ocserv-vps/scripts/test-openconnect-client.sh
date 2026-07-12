@@ -42,7 +42,7 @@ done
   printf '%s\n' 'Invalid server FQDN.' >&2
   exit 2
 }
-[[ "${USERNAME}" =~ ^[A-Za-z0-9_.@-]{1,64}$ ]] || { printf '%s\n' 'Invalid username.' >&2; exit 2; }
+[[ "${USERNAME}" =~ ^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$ ]] || { printf '%s\n' 'Invalid username.' >&2; exit 2; }
 [[ "${PORT}" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || { printf '%s\n' 'Invalid port.' >&2; exit 2; }
 [[ "${INTERFACE}" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || { printf '%s\n' 'Invalid tunnel interface.' >&2; exit 2; }
 [[ "${PROBE_URL}" == https://* ]] || { printf '%s\n' 'Probe URL must use HTTPS.' >&2; exit 2; }

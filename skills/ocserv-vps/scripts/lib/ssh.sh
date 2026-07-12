@@ -22,6 +22,14 @@ ocserv_validate_port() {
   fi
 }
 
+ocserv_validate_ssh_target() {
+  local target="$1"
+  if [[ -z "${target}" || "${target}" == -* || "${target}" =~ [[:space:][:cntrl:]] ]]; then
+    printf 'Invalid SSH target: %s\n' "${target}" >&2
+    exit 2
+  fi
+}
+
 ocserv_validate_version() {
   local version="$1"
   if [[ ! "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]]; then
@@ -32,7 +40,9 @@ ocserv_validate_version() {
 
 ocserv_validate_domain() {
   local domain="$1"
-  if [[ ! "${domain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || [[ "${domain}" != *.* ]]; then
+  if [[ "${domain}" != "${domain,,}" ]] || \
+     [[ ! "${domain}" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] || \
+     [[ "${domain}" != *.* ]]; then
     printf 'Invalid public domain: %s\n' "${domain}" >&2
     exit 2
   fi
@@ -63,10 +73,7 @@ ocserv_run_remote() {
   local accept_new_host_key="$6"
   shift 6
 
-  if [[ -z "${host}" ]]; then
-    printf '%s\n' '--host is required.' >&2
-    exit 2
-  fi
+  ocserv_validate_ssh_target "${host}"
   if [[ ! -r "${remote_script}" ]]; then
     printf 'Remote script is not readable: %s\n' "${remote_script}" >&2
     exit 2
@@ -113,5 +120,5 @@ ocserv_run_remote() {
     cat "${common_script}"
     printf '\n'
     cat "${remote_script}"
-  } | "${runner[@]}" "${ssh_args[@]}" "${host}" "${remote_command}"
+  } | "${runner[@]}" "${ssh_args[@]}" -- "${host}" "${remote_command}"
 }

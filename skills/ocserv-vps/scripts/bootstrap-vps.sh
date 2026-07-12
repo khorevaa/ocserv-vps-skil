@@ -87,7 +87,7 @@ ocserv_validate_cidr "${VPN_NETWORK}"
 ocserv_validate_port 'VPN port' "${VPN_PORT}"
 ocserv_validate_port 'SSH port' "${SSH_PORT}"
 [[ "${ACME_EMAIL}" == *@*.* ]] || { printf '%s\n' 'Invalid ACME email.' >&2; exit 2; }
-[[ "${VPN_USERNAME}" =~ ^[A-Za-z0-9_.@-]{1,64}$ ]] || { printf '%s\n' 'Unsafe VPN username.' >&2; exit 2; }
+[[ "${VPN_USERNAME}" =~ ^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$ ]] || { printf '%s\n' 'Unsafe VPN username.' >&2; exit 2; }
 [[ "${APPROVE_FIREWALL}" == "1" ]] || { printf '%s\n' '--approve-firewall is required.' >&2; exit 2; }
 [[ "${APPROVE_RESTART}" == "1" ]] || { printf '%s\n' '--approve-restart is required.' >&2; exit 2; }
 

@@ -1,6 +1,6 @@
 ---
 name: ocserv-vps
-description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN on a root-managed Debian or Ubuntu VPS. Use when Codex must publish a version-tagged ocserv image to GitHub Container Registry from a SHA-256 and GPG-verified source release, prepare a fresh VPS, install Docker only when absent, pull an explicit GHCR version tag, issue an ACME certificate, generate the ocserv configuration and first user, configure forwarding/NAT/firewall, inspect health, add users, upgrade the image, or roll back to a retained image. Optionally prepare nginx as the HTTP/ACME edge for a future UI without proxying ocserv.
+description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN and its optional SSH-tunneled management UI on a root-managed Debian or Ubuntu VPS. Use when Codex must publish version-tagged ocserv or UI images to GitHub Container Registry, prepare a fresh VPS, install Docker only when absent, issue ACME certificates, configure forwarding/NAT/firewall, inspect health, manage VPN users, install the Unix-socket UI, change VPN passwords through the UI, upgrade images, or roll back. The workflow requires verified image inputs, explicit approval for applicable mutations, and real OpenConnect data-path checks.
 ---
 
 # ocserv VPS
@@ -14,7 +14,7 @@ Treat this skill as manual-first. Bootstrap changes host networking and firewall
 - Execute every server-side mutation through the bundled scripts.
 - Allow read-only SSH diagnosis, but never repair Docker, firewall, certificates, or ocserv configuration by hand.
 - Run `preflight.sh` before bootstrap, upgrade, or rollback.
-- Require explicit firewall and restart approvals; never add them silently.
+- Require explicit firewall approval for bootstrap or network changes and restart approval for container recreation; UI installation must not change the firewall.
 - Install Docker Engine only when `docker` is absent. When Docker exists, preserve it and add only a missing Compose v2 plugin.
 - Build every ocserv image from an exact HTTPS source archive after SHA-256, detached-signature, and full-fingerprint verification in GitHub Actions.
 - Keep `docker/Dockerfile` explicit and reviewed. Publish `ghcr.io/khorevaa/ocserv-vps:<version>`.
@@ -22,6 +22,13 @@ Treat this skill as manual-first. Bootstrap changes host networking and firewall
 - Require successful OpenConnect authentication and a tunneled HTTPS request after bootstrap, upgrade, and rollback. Treat a failed probe as a failed deployment.
 - Keep ocserv on host networking with TCP and UDP listeners; do not place HTTP `proxy_pass` or `grpc_pass` in front of it.
 - Keep generated credentials out of summaries. Retrieve root-only credential files securely and delete them afterward.
+- Never expose the Docker socket, ocserv sec-mod socket, or arbitrary host commands to the UI.
+- Run both UI containers with `network_mode: none`; let root-authenticated OpenSSH reach the web container only through `/run/ocserv-ui-web/web.sock`, with no published backend port or internal Docker network.
+- Create no UI TCP listener or nginx UI configuration on the VPS. Require `ssh -L 127.0.0.1:8765:/run/ocserv-ui-web/web.sock` for browser access and never add a UI firewall service/rule.
+- Generate one `ocserv-<32hex>.localhost` hostname per installation, persist it in `ui.env` and the access handoff, and require that exact browser URL; reject literal `localhost`.
+- Reserve host UID/GID `10001` with the exact locked nologin `ocserv-ui-host` account/group. Refuse every name or numeric-ID collision and remove the identity on rollback only if that transaction created it and it remains exact.
+- Give the networkless root control sidecar only `DAC_OVERRIDE`, required to connect to ocserv's mode-0711 `occtl.sock`; drop every other capability.
+- Exchange the separately generated UI access secret directly for the server-side operator session; never place that secret in a URL, Compose environment, process argument, or log.
 
 ## Supported host
 
@@ -126,7 +133,7 @@ Run a dry plan first:
 
 Remove `--dry-run` only after reviewing the plan.
 
-Add `--prepare-nginx` when nginx should be installed now for ACME webroot and future UI work. This mode creates only an HTTP port-80 ACME site returning `404` elsewhere. It does not proxy ocserv and does not expose a UI.
+Add `--prepare-nginx` only when nginx should be installed for the ACME webroot. This mode creates only an HTTP port-80 ACME site returning `404` elsewhere. It does not proxy ocserv or the management UI.
 
 Bootstrap must:
 
@@ -150,7 +157,7 @@ Run:
 ./scripts/status.sh --host root@vpn.example.com
 ```
 
-Retrieve the initial credentials over the independent SSH session, store them in a password manager, then delete the root-only file. Do not echo the password into chat summaries.
+Retrieve the initial VPN credentials over the independent SSH session, store them in a password manager, then delete the root-only file. Do not echo the password into chat summaries.
 
 Test a real OpenConnect/AnyConnect-compatible client before closing the independent SSH session.
 
@@ -185,11 +192,40 @@ Run:
 
 Rollback must validate the retained image before activation, require the same temporary-user OpenConnect probe, and restore the image active at rollback start if any check fails.
 
-## nginx and future UI
+## Dockerized management UI
 
-Treat nginx as optional preparation, not part of the VPN data path. Ocserv owns its configured TCP and UDP port directly.
+Keep nginx outside the UI and VPN data paths. Keep ocserv on its configured TCP and UDP port and expose the UI only through `/run/ocserv-ui-web/web.sock`.
 
-Read [`references/nginx-ui.md`](references/nginx-ui.md) before adding a UI. Decide explicitly whether the UI uses another TLS port, ocserv moves ports, or a reviewed ocserv-compatible port-sharing design is introduced. Do not copy the Xray `grpc_pass` topology.
+Keep both UI containers on `network_mode: none`; do not add nginx, publish a web
+port, bind `127.0.0.1:8080`, or add an internal Docker network. Own the web
+runtime directory as `10001:10001` mode `0700` and the socket as mode `0600`.
+Back those numeric IDs with the locked `ocserv-ui-host` host account and group;
+never reuse a pre-existing identity.
+
+Read [`references/ui.md`](references/ui.md) and [`references/nginx-ui.md`](references/nginx-ui.md) before UI work. Publish the explicit UI and control images, then review a dry run:
+
+```bash
+./scripts/install-ui.sh \
+  --host root@vpn.example.com \
+  --ui-version <version> \
+  --ui-image ghcr.io/khorevaa/ocserv-vps-ui:<version> \
+  --control-image ghcr.io/khorevaa/ocserv-vps-control:<version> \
+  --ui-port 8765 \
+  --approve-restart \
+  --dry-run
+```
+
+Remove `--dry-run` only after reviewing the controller-local UI port, container restart, and rollback snapshot. The UI transaction must not add a VPS TCP listener, nginx configuration, firewall rule, or service. Retrieve `/root/ocserv-vps-ui-access` securely, store the secret, delete the handoff file, and run `scripts/ui-status.sh`.
+
+Create a local tunnel with `scripts/ui-tunnel.sh`, `scripts/ui-tunnel.ps1`, or `ssh -N -L 127.0.0.1:8765:/run/ocserv-ui-web/web.sock root@vpn.example.com`. Open only the exact `http://ocserv-<32hex>.localhost:8765/` URL from `ui.env` or the handoff; literal `http://localhost:8765/` is invalid. Require both helpers to retrieve, validate, and display that installed URL. Never bind the local forward beyond controller loopback. Enter the access secret in the dedicated form; successful exchange opens the operator session without another login.
+
+When already connected to the VPS as root, run `ocserv-ui-access-info` to print
+the exact URL, current access secret, and controller-side SSH tunnel command.
+Treat its output as sensitive and never copy it into logs or chat.
+
+Rotate a suspected or exposed access secret with `scripts/rotate-ui-access.sh --approve-restart`. This recreates only the web container, restores the old secret on failure, and invalidates every previous operator session on success.
+
+Require the installation transaction to preserve direct VPN TCP/UDP ownership, keep the web container unprivileged, avoid the Docker socket, and pass both the server-side and controller-side OpenConnect probes.
 
 ## Failure handling
 
@@ -212,6 +248,10 @@ Read [`references/troubleshooting.md`](references/troubleshooting.md) for stage-
 - `scripts/status.sh`: container, listener, network, certificate, user, and backup status
 - `scripts/add-user.sh`: generated-password user management
 - `scripts/test-openconnect-client.sh`: controller-side OpenConnect tunnel and HTTPS data-path test
+- `scripts/install-ui.sh`: transactional Unix-socket UI installation
+- `scripts/ui-tunnel.sh` / `scripts/ui-tunnel.ps1`: controller-local SSH tunnel that retrieves and displays the exact installed random URL
+- `scripts/rotate-ui-access.sh`: atomic UI access-secret rotation and operator-session revocation
+- `scripts/ui-status.sh`: UI containers, private socket, local-tunnel contract, and handoff status
 - `scripts/ssh-with-password.sh`: optional SSH password wrapper without `sshpass`
 - `scripts/remote/`: bundled server-side implementations
 
@@ -219,5 +259,6 @@ Read [`references/troubleshooting.md`](references/troubleshooting.md) for stage-
 
 - [`references/architecture.md`](references/architecture.md): container, filesystem, network, firewall, and transaction model
 - [`references/release-sourcing.md`](references/release-sourcing.md): immutable source and base-image trust chain
-- [`references/nginx-ui.md`](references/nginx-ui.md): optional nginx preparation and future UI constraints
+- [`references/nginx-ui.md`](references/nginx-ui.md): optional ACME nginx preparation and the rule that nginx stays outside the UI path
+- [`references/ui.md`](references/ui.md): UI topology, security invariants, installation gates, and MVP API
 - [`references/troubleshooting.md`](references/troubleshooting.md): diagnosis by deployment stage
