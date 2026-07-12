@@ -39,7 +39,7 @@ jobs:
           OCSERV_IMAGE: ${{ inputs.ocserv_image }}
         run: |
           set -euo pipefail
-          [[ "${GITHUB_REF}" == 'refs/heads/main' ]]
+          [[ "${GITHUB_REF}" == 'refs/heads/develop' ]]
           [[ "${GITHUB_REPOSITORY_OWNER,,}" == 'khorevaa' ]]
           [[ "${VERSION}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]]
           [[ "${GO_BUILD_IMAGE}" == 'golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2' ]]
@@ -102,7 +102,7 @@ jobs:
           OCSERV_IMAGE: ${{ inputs.ocserv_image }}
         run: |
           set -euo pipefail
-          [[ "${GITHUB_REF}" == 'refs/heads/main' ]]
+          [[ "${GITHUB_REF}" == 'refs/heads/develop' ]]
           [[ "${VERSION}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]]
           [[ "${GO_BUILD_IMAGE}" == 'golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2' ]]
           [[ "${OCSERV_IMAGE}" == 'ghcr.io/khorevaa/ocserv-vps:1.5.0' ]]
