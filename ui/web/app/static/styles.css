@@ -476,8 +476,12 @@ svg {
 }
 
 .topbar-brand strong {
+  max-width: min(42vw, 520px);
+  overflow: hidden;
   font-size: 19px;
   letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-account {

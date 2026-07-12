@@ -212,6 +212,7 @@
       const session = await apiRequest("/api/v1/auth/me");
       applySession(session);
       showApp();
+      if (state.currentView !== "overview") loadOverview();
     } catch (error) {
       clearSession();
       window.location.replace("/");
@@ -376,6 +377,10 @@
     serviceIcon.classList.toggle("is-offline", !online);
 
     el("service-domain").textContent = textOrDash(vpn.domain);
+    if (typeof vpn.domain === "string" && vpn.domain) {
+      el("topbar-title").textContent = vpn.domain;
+      document.querySelector(".topbar-brand").setAttribute("aria-label", `${vpn.domain} — состояние системы`);
+    }
     el("active-connections").textContent = String(safeCount(vpn.active_connections));
     el("vpn-users").textContent = String(safeCount(vpn.users));
     el("service-version").textContent = textOrDash(service.version);
