@@ -418,14 +418,23 @@
     }
   }
 
+  function renderUIInfo(data) {
+    el("ui-version").textContent = textOrDash(data && data.version);
+    el("ui-image").textContent = textOrDash(data && data.image);
+    const access = data && typeof data.access_secret === "object" ? data.access_secret : {};
+    el("ui-access-mask").textContent = access.masked || "••••••••••••••••";
+    el("ui-access-state").textContent = access.configured ? "Секрет настроен" : "Нет данных";
+  }
+
   async function loadOverview(force = false) {
     if (state.overviewLoaded && !force) return;
     const refreshButton = el("overview-refresh");
     clearInlineError(el("overview-error"));
     setBusy(refreshButton, true);
     try {
-      const data = await apiRequest("/api/v1/overview");
+      const [data, ui] = await Promise.all([apiRequest("/api/v1/overview"), apiRequest("/api/v1/ui")]);
       renderOverview(data || {});
+      renderUIInfo(ui || {});
       state.overviewLoaded = true;
     } catch (error) {
       if (!handleUnauthorized(error)) {

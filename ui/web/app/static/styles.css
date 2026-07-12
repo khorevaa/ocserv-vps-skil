@@ -830,6 +830,33 @@ svg {
   padding: 23px 25px;
 }
 
+.info-card--wide {
+  grid-column: 1 / -1;
+}
+
+.secret-mask {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.secret-mask code {
+  padding: 5px 9px;
+  color: var(--text-strong);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.secret-mask span {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .card-heading {
   display: flex;
   align-items: center;

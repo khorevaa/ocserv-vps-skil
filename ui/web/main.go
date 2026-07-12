@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+var version = "dev"
+
 func validateRuntimeDirectory(socketPath string) error {
 	if !filepath.IsAbs(socketPath) || filepath.Base(socketPath) == "." {
 		return fmt.Errorf("web socket path must be absolute")

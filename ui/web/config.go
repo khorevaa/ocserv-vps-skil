@@ -14,6 +14,7 @@ type config struct {
 	WebSocket             string
 	SessionKeyFile        string
 	AccessSecretFile      string
+	UIImage               string
 	AllowedOrigin         string
 	AllowedHost           string
 	SessionTTLSeconds     int64
@@ -47,6 +48,7 @@ func loadConfig() (config, error) {
 	result.WebSocket = env("OCSERV_UI_WEB_SOCKET", "/run/ocserv-ui-web/web.sock")
 	result.SessionKeyFile = env("OCSERV_UI_SESSION_KEY_FILE", "/run/secrets/session-key")
 	result.AccessSecretFile = env("OCSERV_UI_ACCESS_SECRET_FILE", "/run/secrets/access-secret")
+	result.UIImage = strings.TrimSpace(os.Getenv("OCSERV_UI_IMAGE_NAME"))
 	result.AllowedOrigin = strings.TrimSpace(os.Getenv("OCSERV_UI_ALLOWED_ORIGIN"))
 	if result.AllowedOrigin == "" {
 		return result, fmt.Errorf("OCSERV_UI_ALLOWED_ORIGIN is required")

@@ -80,7 +80,7 @@ func testApplication(t *testing.T, accessSecret string) (*application, config) {
 	writeTestSecret(t, sessionKey, "test-session-key-with-at-least-32-bytes!")
 	writeTestSecret(t, access, accessSecret)
 	startFakeControl(t, control)
-	cfg := config{DataFile: filepath.Join(root, "state.json"), ControlSocket: control, WebSocket: filepath.Join(root, "web.sock"), SessionKeyFile: sessionKey, AccessSecretFile: access, AllowedOrigin: testOrigin, AllowedHost: strings.TrimPrefix(testOrigin, "http://"), SessionTTLSeconds: 3600, AuditRetentionSeconds: 3600, AuditMaxRows: 20, ControlTimeoutSeconds: 1, MaxRequestBytes: 16384, RequireRootSecrets: false}
+	cfg := config{DataFile: filepath.Join(root, "state.json"), ControlSocket: control, WebSocket: filepath.Join(root, "web.sock"), SessionKeyFile: sessionKey, AccessSecretFile: access, UIImage: "ghcr.io/khorevaa/ocserv-vps-ui:0.4.5", AllowedOrigin: testOrigin, AllowedHost: strings.TrimPrefix(testOrigin, "http://"), SessionTTLSeconds: 3600, AuditRetentionSeconds: 3600, AuditMaxRows: 20, ControlTimeoutSeconds: 1, MaxRequestBytes: 16384, RequireRootSecrets: false}
 	app, err := newApplication(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -234,5 +234,15 @@ func TestControlResponseIsAllowlisted(t *testing.T) {
 	body, _ := io.ReadAll(overview.Result().Body)
 	if strings.Contains(string(body), "active_sessions") || !strings.Contains(string(body), "active_connections") {
 		t.Fatalf("overview contract: %s", body)
+	}
+}
+
+func TestUIInfoMasksAccessSecret(t *testing.T) {
+	app, _ := testApplication(t, strings.Repeat("A", 64))
+	access := perform(app, "POST", "/api/v1/access", `{"secret":"`+strings.Repeat("A", 64)+`"}`, nil, "")
+	cookie := access.Result().Cookies()[0]
+	response := perform(app, "GET", "/api/v1/ui", "", cookie, "")
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "ocserv-vps-ui:0.4.5") || strings.Contains(response.Body.String(), strings.Repeat("A", 64)) {
+		t.Fatalf("ui info=%d %s", response.Code, response.Body.String())
 	}
 }

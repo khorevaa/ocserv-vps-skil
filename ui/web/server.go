@@ -23,6 +23,7 @@ var embeddedUI embed.FS
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$`)
 var secretPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43,256}$`)
+var uiImagePattern = regexp.MustCompile(`^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 type application struct {
 	config       config
@@ -112,6 +113,8 @@ func (a *application) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		a.logout(writer, request, context)
 	case path == "/api/v1/overview" && request.Method == http.MethodGet:
 		a.overview(writer)
+	case path == "/api/v1/ui" && request.Method == http.MethodGet:
+		a.uiInfo(writer)
 	case path == "/api/v1/users" && request.Method == http.MethodGet:
 		a.listUsers(writer)
 	case path == "/api/v1/connections" && request.Method == http.MethodGet:
@@ -268,6 +271,22 @@ func (a *application) controlResponse(writer http.ResponseWriter, raw json.RawMe
 func (a *application) overview(writer http.ResponseWriter) {
 	raw, err := a.control.request("overview", nil)
 	a.controlResponse(writer, raw, err, func(r json.RawMessage) (any, error) { return overviewForWeb(r) })
+}
+
+func (a *application) uiInfo(writer http.ResponseWriter) {
+	image := any(nil)
+	if uiImagePattern.MatchString(a.config.UIImage) {
+		image = a.config.UIImage
+	}
+	safeVersion := any(nil)
+	if regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$`).MatchString(version) {
+		safeVersion = version
+	}
+	noStore(writer.Header())
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"version": safeVersion, "image": image,
+		"access_secret": map[string]any{"configured": true, "masked": "••••••••••••••••"},
+	})
 }
 func (a *application) listUsers(writer http.ResponseWriter) {
 	raw, err := a.control.request("list_users", nil)

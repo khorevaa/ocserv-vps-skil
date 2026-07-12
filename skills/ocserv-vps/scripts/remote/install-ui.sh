@@ -437,6 +437,7 @@ services:
       - no-new-privileges:true
     environment:
       OCSERV_UI_ALLOWED_ORIGIN: "http://${UI_LOCAL_HOST}:${UI_PORT}"
+      OCSERV_UI_IMAGE_NAME: "${UI_IMAGE}"
       OCSERV_UI_TRUSTED_PROXY_CIDRS: ""
       OCSERV_UI_JSON: /var/lib/ocserv-ui/state.json
       OCSERV_UI_CONTROL_SOCKET: /run/ocserv-ui/control.sock
