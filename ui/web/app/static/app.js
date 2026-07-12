@@ -5,10 +5,15 @@
     csrfToken: "",
     operator: null,
     users: [],
+    connections: [],
+    journal: [],
     usersLoaded: false,
+    connectionsLoaded: false,
+    journalLoaded: false,
     overviewLoaded: false,
     currentView: "overview",
     rotateUsername: "",
+    disconnectID: 0,
     activeModal: null,
     lastFocused: null,
   };
@@ -23,6 +28,29 @@
   const modalBackdrop = el("modal-backdrop");
   const usersTableBody = el("users-table-body");
   const userSearch = el("user-search");
+  const connectionsTableBody = el("connections-table-body");
+  const journalTableBody = el("journal-table-body");
+
+  const themeSelect = el("theme-select");
+  const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+
+  function applyTheme(mode) {
+    const selected = ["system", "light", "dark"].includes(mode) ? mode : "system";
+    if (selected === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.dataset.theme = selected;
+    themeSelect.value = selected;
+    try { localStorage.setItem("ocserv-ui-theme", selected); } catch (_error) { /* preference remains in memory */ }
+    const dark = selected === "dark" || (selected === "system" && systemTheme.matches);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#101821" : "#f7f9fc");
+  }
+
+  let savedTheme = "system";
+  try { savedTheme = localStorage.getItem("ocserv-ui-theme") || "system"; } catch (_error) { /* system default */ }
+  applyTheme(savedTheme);
+  themeSelect.addEventListener("change", () => applyTheme(themeSelect.value));
+  systemTheme.addEventListener("change", () => {
+    if (themeSelect.value === "system") applyTheme("system");
+  });
 
   class ApiError extends Error {
     constructor(message, status, payload) {
@@ -42,6 +70,7 @@
         control_unavailable: "Служба управления ocserv временно недоступна.",
         backend_unavailable: "Служба ocserv временно недоступна.",
         backend_error: "Служба ocserv отклонила операцию.",
+        invalid_connection_id: "Подключение уже завершено или имеет некорректный идентификатор.",
       }[payload.error];
       if (translated) return translated;
       const value = payload.message || payload.error || payload.detail;
@@ -139,7 +168,11 @@
     state.csrfToken = "";
     state.operator = null;
     state.users = [];
+    state.connections = [];
+    state.journal = [];
     state.usersLoaded = false;
+    state.connectionsLoaded = false;
+    state.journalLoaded = false;
     state.overviewLoaded = false;
   }
 
@@ -158,7 +191,7 @@
     setHidden(bootView, true);
     setHidden(appView, false);
     const requestedView = window.location.hash.slice(1);
-    navigateTo(requestedView === "users" ? "users" : "overview");
+    navigateTo(["overview", "connections", "journal", "users"].includes(requestedView) ? requestedView : "overview");
   }
 
   function handleUnauthorized(error) {
@@ -197,7 +230,7 @@
   });
 
   function navigateTo(view) {
-    const nextView = view === "users" ? "users" : "overview";
+    const nextView = ["overview", "connections", "journal", "users"].includes(view) ? view : "overview";
     state.currentView = nextView;
     document.querySelectorAll("[data-panel]").forEach((panel) => {
       setHidden(panel, panel.dataset.panel !== nextView);
@@ -211,14 +244,14 @@
         link.removeAttribute("aria-current");
       }
     });
-    document.title = `${nextView === "users" ? "Пользователи" : "Состояние системы"} — ocserv VPN Server`;
+    const titles = { overview: "Состояние системы", connections: "Подключения", journal: "Журнал", users: "Пользователи" };
+    document.title = `${titles[nextView]} — ocserv VPN Server`;
     closeSidebar();
 
-    if (nextView === "users") {
-      loadUsers();
-    } else {
-      loadOverview();
-    }
+    if (nextView === "users") loadUsers();
+    else if (nextView === "connections") loadConnections();
+    else if (nextView === "journal") loadJournal();
+    else loadOverview();
   }
 
   document.querySelectorAll("[data-view]").forEach((link) => {
@@ -482,6 +515,174 @@
     openRotatePassword(button.dataset.username || "");
   });
 
+  function normalizeConnections(payload) {
+    if (!payload || !Array.isArray(payload.connections)) return [];
+    return payload.connections.filter((item) => item && Number.isInteger(Number(item.id)) && Number(item.id) > 0)
+      .map((item) => ({
+        id: Number(item.id),
+        username: textOrDash(item.username),
+        clientIP: textOrDash(item.client_ip),
+        vpnIP: textOrDash(item.vpn_ip),
+        protocol: textOrDash(item.protocol),
+        connectedAt: item.connected_at || null,
+        duration: safeCount(item.duration_seconds),
+      }));
+  }
+
+  function renderConnections() {
+    connectionsTableBody.replaceChildren();
+    const fragment = document.createDocumentFragment();
+    state.connections.forEach((connection) => {
+      const row = document.createElement("tr");
+      const username = document.createElement("td");
+      username.className = "username-cell";
+      username.textContent = connection.username;
+      const clientIP = document.createElement("td");
+      clientIP.className = "code-value";
+      clientIP.textContent = connection.clientIP;
+      const vpnIP = document.createElement("td");
+      vpnIP.className = "code-value";
+      vpnIP.textContent = connection.vpnIP;
+      const protocol = document.createElement("td");
+      protocol.textContent = connection.protocol;
+      const duration = document.createElement("td");
+      duration.textContent = formatUptime(connection.duration);
+      duration.title = connection.connectedAt ? `Подключён ${formatDateTime(connection.connectedAt)}` : "";
+      const actions = document.createElement("td");
+      actions.className = "table-action-cell";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button row-action row-action--danger";
+      button.dataset.action = "disconnect";
+      button.dataset.connectionId = String(connection.id);
+      button.textContent = "Отключить";
+      button.setAttribute("aria-label", `Отключить пользователя ${connection.username}`);
+      actions.appendChild(button);
+      row.append(username, clientIP, vpnIP, protocol, duration, actions);
+      fragment.appendChild(row);
+    });
+    connectionsTableBody.appendChild(fragment);
+    setHidden(el("connections-loading"), true);
+    setHidden(el("connections-empty"), state.connections.length !== 0);
+    const count = state.connections.length;
+    el("connections-count").textContent = `${count} ${pluralize(count, ["подключение", "подключения", "подключений"])}`;
+  }
+
+  async function loadConnections(force = false) {
+    if (state.connectionsLoaded && !force) return;
+    const refresh = el("connections-refresh");
+    clearInlineError(el("connections-error"));
+    setHidden(el("connections-loading"), false);
+    setHidden(el("connections-empty"), true);
+    setBusy(refresh, true);
+    try {
+      state.connections = normalizeConnections(await apiRequest("/api/v1/connections"));
+      state.connectionsLoaded = true;
+      renderConnections();
+    } catch (error) {
+      setHidden(el("connections-loading"), true);
+      if (!handleUnauthorized(error)) showInlineError(el("connections-error"), error.message || "Не удалось загрузить подключения.");
+    } finally {
+      setBusy(refresh, false);
+    }
+  }
+
+  el("connections-refresh").addEventListener("click", () => loadConnections(true));
+  connectionsTableBody.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action='disconnect']");
+    if (!button) return;
+    const id = Number(button.dataset.connectionId);
+    const connection = state.connections.find((item) => item.id === id);
+    if (!connection) return;
+    state.disconnectID = id;
+    el("disconnect-username").textContent = connection.username;
+    clearInlineError(el("disconnect-error"));
+    openModal("disconnect-modal");
+  });
+
+  function normalizeJournal(payload) {
+    if (!payload || !Array.isArray(payload.events)) return [];
+    return payload.events.filter((item) => item && ["connected", "disconnected"].includes(item.event))
+      .map((item) => ({
+        occurredAt: item.occurred_at,
+        event: item.event,
+        username: textOrDash(item.username),
+        clientIP: textOrDash(item.client_ip),
+        vpnIP: textOrDash(item.vpn_ip),
+        duration: safeCount(item.duration_seconds),
+        bytesIn: safeCount(item.bytes_in),
+        bytesOut: safeCount(item.bytes_out),
+      }));
+  }
+
+  function formatBytes(value) {
+    const bytes = safeCount(value);
+    if (bytes < 1000) return `${bytes} Б`;
+    if (bytes < 1000000) return `${(bytes / 1000).toFixed(1)} КБ`;
+    if (bytes < 1000000000) return `${(bytes / 1000000).toFixed(1)} МБ`;
+    return `${(bytes / 1000000000).toFixed(1)} ГБ`;
+  }
+
+  function renderJournal() {
+    const filter = el("journal-filter").value;
+    const events = filter === "all" ? state.journal : state.journal.filter((item) => item.event === filter);
+    journalTableBody.replaceChildren();
+    const fragment = document.createDocumentFragment();
+    events.forEach((item) => {
+      const row = document.createElement("tr");
+      const occurred = document.createElement("td");
+      occurred.textContent = formatDateTime(item.occurredAt);
+      const eventCell = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = `event-badge event-badge--${item.event}`;
+      badge.textContent = item.event === "connected" ? "Подключён" : "Отключён";
+      eventCell.appendChild(badge);
+      const username = document.createElement("td");
+      username.className = "username-cell";
+      username.textContent = item.username;
+      const clientIP = document.createElement("td");
+      clientIP.className = "code-value";
+      clientIP.textContent = item.clientIP;
+      const vpnIP = document.createElement("td");
+      vpnIP.className = "code-value";
+      vpnIP.textContent = item.vpnIP;
+      const details = document.createElement("td");
+      details.className = "journal-details";
+      details.textContent = item.event === "connected"
+        ? "—"
+        : `${formatUptime(item.duration)} · ↓ ${formatBytes(item.bytesIn)} · ↑ ${formatBytes(item.bytesOut)}`;
+      row.append(occurred, eventCell, username, clientIP, vpnIP, details);
+      fragment.appendChild(row);
+    });
+    journalTableBody.appendChild(fragment);
+    setHidden(el("journal-loading"), true);
+    setHidden(el("journal-empty"), events.length !== 0);
+    const count = events.length;
+    el("journal-count").textContent = `${count} ${pluralize(count, ["событие", "события", "событий"])}`;
+  }
+
+  async function loadJournal(force = false) {
+    if (state.journalLoaded && !force) return;
+    const refresh = el("journal-refresh");
+    clearInlineError(el("journal-error"));
+    setHidden(el("journal-loading"), false);
+    setHidden(el("journal-empty"), true);
+    setBusy(refresh, true);
+    try {
+      state.journal = normalizeJournal(await apiRequest("/api/v1/journal"));
+      state.journalLoaded = true;
+      renderJournal();
+    } catch (error) {
+      setHidden(el("journal-loading"), true);
+      if (!handleUnauthorized(error)) showInlineError(el("journal-error"), error.message || "Не удалось загрузить журнал VPN-сервера.");
+    } finally {
+      setBusy(refresh, false);
+    }
+  }
+
+  el("journal-refresh").addEventListener("click", () => loadJournal(true));
+  el("journal-filter").addEventListener("change", renderJournal);
+
   function openModal(modalId) {
     if (!state.activeModal) {
       state.lastFocused = document.activeElement;
@@ -520,6 +721,29 @@
   modalBackdrop.addEventListener("click", (event) => {
     if (event.target === modalBackdrop && state.activeModal && state.activeModal.id !== "credential-modal") {
       closeModal();
+    }
+  });
+
+  el("disconnect-submit").addEventListener("click", async () => {
+    const id = state.disconnectID;
+    if (!id) return;
+    const submit = el("disconnect-submit");
+    clearInlineError(el("disconnect-error"));
+    setBusy(submit, true);
+    try {
+      await apiRequest(`/api/v1/connections/${id}`, { method: "DELETE" });
+      state.disconnectID = 0;
+      closeModal();
+      state.connectionsLoaded = false;
+      state.overviewLoaded = false;
+      state.usersLoaded = false;
+      state.journalLoaded = false;
+      showToast("VPN-подключение завершено", "success");
+      await loadConnections(true);
+    } catch (error) {
+      if (!handleUnauthorized(error)) showInlineError(el("disconnect-error"), error.message || "Не удалось завершить подключение.");
+    } finally {
+      setBusy(submit, false);
     }
   });
 
@@ -576,6 +800,8 @@
       showCredential(credential);
       state.usersLoaded = false;
       state.overviewLoaded = false;
+      state.connectionsLoaded = false;
+      state.journalLoaded = false;
     } catch (error) {
       if (!handleUnauthorized(error)) {
         showInlineError(el("create-user-error"), error.message || "Не удалось создать пользователя.");
@@ -609,6 +835,8 @@
       showCredential(credential);
       state.usersLoaded = false;
       state.overviewLoaded = false;
+      state.connectionsLoaded = false;
+      state.journalLoaded = false;
     } catch (error) {
       if (!handleUnauthorized(error)) {
         showInlineError(el("rotate-password-error"), error.message || "Не удалось изменить пароль.");

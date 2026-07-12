@@ -41,6 +41,8 @@ The container receives only `NET_ADMIN`, `NET_RAW`, and `/dev/net/tun`; do not s
 - `/opt/ocserv-vps/state`: current and previous versions/images
 - `/opt/ocserv-vps/config/ocserv.conf`: generated configuration
 - `/opt/ocserv-vps/config/ocpasswd`: mode `0600` password database
+- `/opt/ocserv-vps/config/session-journal.sh`: managed ocserv connect/disconnect logger
+- `/opt/ocserv-vps/logs/vpn-events.jsonl`: bounded normalized VPN event journal; writable by ocserv and read-only in control
 - `/opt/ocserv-vps/compose.ui.yaml` and `ui.env`: optional UI Compose override, image tags, generated `ocserv-<32hex>.localhost` hostname, and local port
 - `/opt/ocserv-vps/ui-data/state.json`: atomically replaced Go session/audit state; only hashes are persisted
 - `/opt/ocserv-vps/ui-secrets`: root-owned persistent session key and access secret
@@ -56,6 +58,11 @@ Both processes are compiled Go binaries; neither image installs Python or
 SQLite. The scratch control runtime copies only the exact `occtl`, `ocpasswd`,
 and linked libraries from the matching ocserv image and executes the tools
 with fixed argument vectors.
+
+The journal path does not use Docker logs or the Docker socket. Ocserv calls a
+fixed connect/disconnect script which validates username, client/VPN addresses,
+duration, and byte counters before one JSONL record is appended. Control tails
+and allowlists at most 500 records; web never mounts the journal itself.
 
 Host user and group `ocserv-ui-host` reserve UID/GID `10001`. The user is
 locked, has `/usr/sbin/nologin`, home `/nonexistent`, and no supplementary

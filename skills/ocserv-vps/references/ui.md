@@ -13,7 +13,8 @@ browser http://ocserv-<32hex>.localhost:8765
                                                |-- secret-to-session exchange
                                                `-> /run/ocserv-ui/control.sock -> ocserv-control
                                                                                   |-- ocpasswd
-                                                                                  `-- occtl socket
+                                                                                  |-- occtl socket
+                                                                                  `-- read-only VPN journal
 ```
 
 Do not create an nginx UI site, reverse proxy, loopback TCP listener, wildcard
@@ -42,6 +43,13 @@ network, accepts only fixed JSON operations over a Unix socket, and mounts the
 password database read-write. Share only the dedicated
 occtl socket directory; never share `/run/ocserv`, which also contains the
 security-module socket.
+
+Ocserv invokes the managed `/etc/ocserv/session-journal.sh` for connect and
+disconnect events. The script writes only validated, normalized JSONL fields
+to `/var/log/ocserv/vpn-events.jsonl`; the host stores that file under
+`/opt/ocserv-vps/logs`. Mount this directory read-write only in ocserv and
+read-only in control. Do not expose the Docker socket or raw host logs to the
+web process.
 
 The control container runs as root with all capabilities dropped except
 `DAC_OVERRIDE`. This one capability is required because ocserv creates the
@@ -85,6 +93,7 @@ Persistent paths:
 - `/opt/ocserv-vps/ui-data/state.json`: versioned JSON session/audit state, owned by UID `10001`, mode `0600`
 - `/opt/ocserv-vps/ui-secrets`: root-owned session key and persistent access secret
 - `/opt/ocserv-vps/ui-public`: public certificate chain plus an atomically refreshed state mirror
+- `/opt/ocserv-vps/logs/vpn-events.jsonl`: bounded normalized VPN connect/disconnect journal, mode `0640`
 - `/opt/ocserv-vps/locks/lifecycle.lock`: serializes CLI lifecycle operations
 - `/opt/ocserv-vps/locks/operation.lock`: serializes CLI and UI password mutations
 - `/root/ocserv-vps-ui-access`: one-time access-secret handoff
@@ -116,6 +125,9 @@ internal Docker network.
 - Serialize user mutations with the shared lock and restore the password file
   from a root-only snapshot when `ocpasswd` or reload fails.
 - Use `occtl terminate user` when rotation requests session invalidation.
+- Use only `occtl disconnect id <validated integer>` for the connection action.
+- Allowlist every connection and journal response field; never return full raw
+  `occtl` objects or arbitrary server-log lines.
 - Do not expose firewall, certificate, image update, restart, or arbitrary command
   operations through the MVP API.
 
@@ -143,6 +155,7 @@ Installation must:
 10. exchange the access secret directly for the operator session
 11. add and rotate a temporary VPN user through the authenticated UI API and pass
    the OpenConnect tunneled HTTPS probe with both generated passwords
+12. configure the managed VPN journal script and keep its mount read-only in control
 
 Retrieve `/root/ocserv-vps-ui-access` over the independent SSH session, store it
 in a password manager, and delete the handoff file. Run `scripts/ui-status.sh`, then run
@@ -177,14 +190,19 @@ revokes all previously issued operator sessions.
 - `GET /api/v1/users`: usernames and active-session counts only
 - `POST /api/v1/users`: add a unique VPN user
 - `PUT /api/v1/users/{name}/password`: rotate password and optionally terminate sessions
+- `GET /api/v1/connections`: allowlisted active occtl sessions
+- `DELETE /api/v1/connections/{id}`: disconnect one validated active session
+- `GET /api/v1/journal`: newest validated VPN connect/disconnect events only
 
 `POST /api/v1/access` is the authentication endpoint. It accepts only the
 strict secret JSON body under exact Host and Origin checks, is reachable only
 after SSH authentication, returns no secret, and sets only the opaque operator
 session cookie.
 
-Connections, event history, user deletion/disable, UI operator management, and
-MFA are follow-up scope. Do not simulate unsupported sections in the UI.
+User deletion/disable, UI operator management, and MFA remain follow-up scope.
+The journal is the VPN server journal, not the panel's internal security audit.
+The application offers system theme detection plus persistent light and dark
+overrides without sending the preference to the server.
 
 The MVP has no UI TCP port on the VPS and installs no nginx UI configuration or
 UI firewall rules. Root-authenticated SSH forwarding is the first access

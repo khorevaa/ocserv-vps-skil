@@ -98,3 +98,38 @@ button:disabled { opacity: .65; cursor: wait; }
 }
 
 .is-hidden { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #edf4fb;
+    background: #0e151d;
+    color-scheme: dark;
+  }
+
+  .access-page {
+    background:
+      radial-gradient(circle at 15% 10%, rgba(75, 168, 255, .15), transparent 32%),
+      #0e151d;
+  }
+
+  .access-card {
+    border-color: #2b3a49;
+    background: #141e29;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+  }
+
+  .access-eyebrow,
+  .access-hint { color: #95a5b8; }
+
+  input {
+    color: #edf4fb;
+    background: #1a2734;
+    border-color: #405166;
+  }
+
+  .access-error {
+    color: #ff9aa2;
+    background: #47242a;
+    border-color: #6d343d;
+  }
+}

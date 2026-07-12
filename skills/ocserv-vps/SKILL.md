@@ -29,6 +29,7 @@ Treat this skill as manual-first. Bootstrap changes host networking and firewall
 - Reserve host UID/GID `10001` with the exact locked nologin `ocserv-ui-host` account/group. Refuse every name or numeric-ID collision and remove the identity on rollback only if that transaction created it and it remains exact.
 - Give the networkless root control sidecar only `DAC_OVERRIDE`, required to connect to ocserv's mode-0711 `occtl.sock`; drop every other capability.
 - Exchange the separately generated UI access secret directly for the server-side operator session; never place that secret in a URL, Compose environment, process argument, or log.
+- Read VPN journal events only from the managed normalized JSONL file; never mount the Docker socket or expose raw host logs to the UI.
 
 ## Supported host
 
@@ -222,6 +223,12 @@ Create a local tunnel with `scripts/ui-tunnel.sh`, `scripts/ui-tunnel.ps1`, or `
 When already connected to the VPS as root, run `ocserv-ui-access-info` to print
 the exact URL, current access secret, and controller-side SSH tunnel command.
 Treat its output as sensitive and never copy it into logs or chat.
+
+After a successful UI installation, ocserv release deployment, or rollback,
+the remote script prints the same sensitive access block automatically when an
+installed UI is detected. Present it only in the interactive deployment output.
+The UI includes active connections, per-session disconnect, the normalized VPN
+connect/disconnect journal, and system/light/dark theme selection.
 
 Rotate a suspected or exposed access secret with `scripts/rotate-ui-access.sh --approve-restart`. This recreates only the web container, restores the old secret on failure, and invalidates every previous operator session on success.
 

@@ -46,6 +46,8 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertNotIn("NET_ADMIN", control_block)
         self.assertNotIn("SYS_ADMIN", control_block)
         self.assertNotIn("docker.sock", control_block)
+        self.assertIn("OCSERV_UI_JOURNAL_FILE: /opt/ocserv-vps/logs/vpn-events.jsonl", control_block)
+        self.assertIn("- ./logs:/opt/ocserv-vps/logs:ro", control_block)
 
         web_block = compose_contract.split("\n  ocserv-ui:\n", 1)[1].split(
             "\nvolumes:\n", 1
@@ -96,6 +98,32 @@ class InstallComposeContractTests(unittest.TestCase):
         )
         self.assertNotIn("127.0.0.1:8080", installer)
         self.assertNotIn("url=http://localhost:", installer)
+
+        base_compose = remote_common.split(
+            'cat > "${OCSERV_COMPOSE_FILE}" <<\'EOF\'\n', 1
+        )[1].split('\nEOF\n  chmod 0640 "${OCSERV_COMPOSE_FILE}"', 1)[0]
+        self.assertIn("- ./logs:/var/log/ocserv:rw", base_compose)
+        self.assertNotIn("docker.sock", base_compose)
+
+    def test_vpn_journal_is_normalized_and_docker_socket_free(self) -> None:
+        repository = pathlib.Path(__file__).resolve().parents[3]
+        common = (
+            repository / "skills" / "ocserv-vps" / "scripts" / "remote" / "common.sh"
+        ).read_text(encoding="utf-8")
+        control = (repository / "ui" / "control" / "service.go").read_text(encoding="utf-8")
+        web = (repository / "ui" / "web" / "server.go").read_text(encoding="utf-8")
+
+        self.assertIn("connect-script = /etc/ocserv/session-journal.sh", common)
+        self.assertIn("disconnect-script = /etc/ocserv/session-journal.sh", common)
+        self.assertIn("vpn-events.jsonl", common)
+        self.assertIn("render_vpn_journal_assets", common)
+        self.assertNotIn("docker.sock", common)
+        self.assertIn('"list_connections"', control)
+        self.assertIn('"disconnect_connection"', control)
+        self.assertIn('"list_journal"', control)
+        self.assertIn('s.runOCCTL("disconnect", "id", strconv.Itoa(id))', control)
+        self.assertIn('path == "/api/v1/journal"', web)
+        self.assertIn('path == "/api/v1/connections"', web)
 
     def test_installer_reserves_and_validates_host_identity_transactionally(self) -> None:
         repository = pathlib.Path(__file__).resolve().parents[3]
@@ -247,6 +275,8 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertIn("ssh -p %s -N -T -L localhost:%s:%s root@%s", common)
         self.assertIn("OCSERV_UI_SSH_PORT=${SSH_PORT}", installer)
         self.assertIn("render_ui_access_info_script", installer)
+        self.assertIn("print_ui_access_info_if_installed", common)
+        self.assertIn("print_ui_access_info_if_installed", installer)
         self.assertIn('rm -f "${OCSERV_UI_ACCESS_INFO_SCRIPT}"', installer)
 
     def test_controller_tunnel_helpers_use_exact_installed_url(self) -> None:

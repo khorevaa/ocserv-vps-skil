@@ -120,3 +120,4 @@ write_state "${TARGET_VERSION}" "${TARGET_IMAGE}" "${OLD_VERSION}" "${OLD_IMAGE}
 ROLLBACK_COMMITTED="1"
 info "Rollback succeeded: ${TARGET_VERSION} (${TARGET_IMAGE})."
 info "Backup: ${BACKUP_DIR}"
+print_ui_access_info_if_installed

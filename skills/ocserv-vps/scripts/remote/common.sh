@@ -20,6 +20,9 @@ OCSERV_UI_HOST_UID="10001"
 OCSERV_UI_HOST_GID="10001"
 OCSERV_UI_HOST_HOME="/nonexistent"
 OCSERV_UI_HOST_SHELL="/usr/sbin/nologin"
+OCSERV_LOG_DIR="${OCSERV_STACK_ROOT}/logs"
+OCSERV_VPN_JOURNAL_FILE="${OCSERV_LOG_DIR}/vpn-events.jsonl"
+OCSERV_VPN_JOURNAL_SCRIPT="${OCSERV_CONFIG_DIR}/session-journal.sh"
 OCSERV_STATE_FILE="${OCSERV_STACK_ROOT}/state"
 OCSERV_IMAGE_ROOT="${OCSERV_STACK_ROOT}/images"
 OCSERV_BIN_DIR="${OCSERV_STACK_ROOT}/bin"
@@ -226,6 +229,7 @@ compose() {
 
 render_compose_file() {
   install -d -m 0750 "${OCSERV_STACK_ROOT}"
+  prepare_vpn_journal_storage
   cat > "${OCSERV_COMPOSE_FILE}" <<'EOF'
 services:
   ocserv:
@@ -240,6 +244,7 @@ services:
     volumes:
       - ./config:/etc/ocserv:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./logs:/var/log/ocserv:rw
       - ocserv-control-run:/run/ocserv-control
     tmpfs:
       - /run/ocserv:mode=0755
@@ -260,6 +265,97 @@ volumes:
       o: size=16m,mode=0755
 EOF
   chmod 0640 "${OCSERV_COMPOSE_FILE}"
+}
+
+prepare_vpn_journal_storage() {
+  [[ ! -L "${OCSERV_LOG_DIR}" ]] || die "Refusing symlinked VPN log directory: ${OCSERV_LOG_DIR}"
+  install -d -m 0750 -o root -g root "${OCSERV_LOG_DIR}"
+  if [[ -e "${OCSERV_VPN_JOURNAL_FILE}" || -L "${OCSERV_VPN_JOURNAL_FILE}" ]]; then
+    [[ -f "${OCSERV_VPN_JOURNAL_FILE}" && ! -L "${OCSERV_VPN_JOURNAL_FILE}" ]] || \
+      die "Refusing unsafe VPN journal path: ${OCSERV_VPN_JOURNAL_FILE}"
+  else
+    install -m 0640 -o root -g root /dev/null "${OCSERV_VPN_JOURNAL_FILE}"
+  fi
+  chown root:root "${OCSERV_VPN_JOURNAL_FILE}"
+  chmod 0640 "${OCSERV_VPN_JOURNAL_FILE}"
+}
+
+render_vpn_journal_assets() {
+  local temporary
+  install -d -m 0750 "${OCSERV_CONFIG_DIR}"
+  prepare_vpn_journal_storage
+  temporary="$(mktemp "${OCSERV_CONFIG_DIR}/.session-journal.sh.XXXXXX")"
+  cat > "${temporary}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+umask 027
+
+journal=/var/log/ocserv/vpn-events.jsonl
+lock=/var/log/ocserv/.journal.lock
+event="${REASON:-}"
+username="${USERNAME:-}"
+remote_ip="${IP_REAL:-}"
+vpn_ip="${IP_REMOTE:-}"
+
+case "${event}" in
+  connect) event=connected ;;
+  disconnect) event=disconnected ;;
+  *) exit 0 ;;
+esac
+[[ "${username}" =~ ^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$ ]] || exit 0
+[[ "${remote_ip}" =~ ^[0-9A-Fa-f:.]{2,64}$ ]] || exit 0
+[[ "${vpn_ip}" =~ ^[0-9A-Fa-f:.]{2,64}$ ]] || exit 0
+
+number_or_zero() {
+  local value="${1:-0}"
+  [[ "${value}" =~ ^[0-9]{1,20}$ ]] || value=0
+  printf '%s' "${value}"
+}
+
+duration="$(number_or_zero "${STATS_DURATION:-0}")"
+bytes_in="$(number_or_zero "${STATS_BYTES_IN:-0}")"
+bytes_out="$(number_or_zero "${STATS_BYTES_OUT:-0}")"
+occurred_at="$(date -u +%s)"
+
+acquired=0
+for _attempt in {1..20}; do
+  if mkdir "${lock}" 2>/dev/null; then
+    acquired=1
+    break
+  fi
+  sleep 0.05
+done
+[[ "${acquired}" == 1 ]] || exit 0
+trap 'rmdir "${lock}" 2>/dev/null || true' EXIT
+
+if [[ -f "${journal}" ]] && [[ "$(wc -c < "${journal}")" -gt 4194304 ]]; then
+  temporary="${journal}.tmp.$$"
+  tail -n 10000 "${journal}" > "${temporary}"
+  chmod 0640 "${temporary}"
+  mv -f "${temporary}" "${journal}"
+fi
+
+printf '{"occurred_at":%s,"event":"%s","username":"%s","remote_ip":"%s","vpn_ip":"%s","duration_seconds":%s,"bytes_in":%s,"bytes_out":%s}\n' \
+  "${occurred_at}" "${event}" "${username}" "${remote_ip}" "${vpn_ip}" \
+  "${duration}" "${bytes_in}" "${bytes_out}" >> "${journal}"
+EOF
+  chmod 0755 "${temporary}"
+  chown root:root "${temporary}"
+  mv -T "${temporary}" "${OCSERV_VPN_JOURNAL_SCRIPT}"
+}
+
+ensure_vpn_journal_config() {
+  local directive desired
+  render_vpn_journal_assets
+  for directive in connect-script disconnect-script; do
+    desired="${directive} = /etc/ocserv/session-journal.sh"
+    if grep -q "^${directive}[[:space:]]*=" "${OCSERV_CONFIG_DIR}/ocserv.conf"; then
+      sed -i "s#^${directive}[[:space:]]*=.*#${desired}#" "${OCSERV_CONFIG_DIR}/ocserv.conf"
+    else
+      printf '%s\n' "${desired}" >> "${OCSERV_CONFIG_DIR}/ocserv.conf"
+    fi
+  done
+  chmod 0640 "${OCSERV_CONFIG_DIR}/ocserv.conf"
 }
 
 install_docker_engine() {
@@ -465,6 +561,8 @@ deny-roaming = false
 rekey-time = 172800
 rekey-method = ssl
 use-occtl = true
+connect-script = /etc/ocserv/session-journal.sh
+disconnect-script = /etc/ocserv/session-journal.sh
 device = vpns
 predictable-ips = true
 ipv4-network = ${vpn_network}
@@ -475,6 +573,7 @@ tunnel-all-dns = true
 cisco-client-compat = true
 EOF
   chmod 0640 "${OCSERV_CONFIG_DIR}/ocserv.conf"
+  render_vpn_journal_assets
 }
 
 create_password_user() {
@@ -782,6 +881,15 @@ EOF
   chmod 0700 "${temporary}"
   chown root:root "${temporary}"
   mv -T "${temporary}" "${OCSERV_UI_ACCESS_INFO_SCRIPT}"
+}
+
+print_ui_access_info_if_installed() {
+  [[ -f "${OCSERV_UI_ENV_FILE}" && -x "${OCSERV_UI_ACCESS_INFO_SCRIPT}" ]] || return 0
+  printf '\n'
+  info 'Management UI access data (sensitive):'
+  if ! "${OCSERV_UI_ACCESS_INFO_SCRIPT}"; then
+    warn "The VPN operation succeeded, but ${OCSERV_UI_ACCESS_INFO_SCRIPT} could not display the installed UI access data."
+  fi
 }
 
 create_stack_backup() {

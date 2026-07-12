@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -113,6 +114,12 @@ func (a *application) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		a.overview(writer)
 	case path == "/api/v1/users" && request.Method == http.MethodGet:
 		a.listUsers(writer)
+	case path == "/api/v1/connections" && request.Method == http.MethodGet:
+		a.listConnections(writer)
+	case strings.HasPrefix(path, "/api/v1/connections/") && request.Method == http.MethodDelete:
+		a.disconnectConnection(writer, request, context)
+	case path == "/api/v1/journal" && request.Method == http.MethodGet:
+		a.listJournal(writer)
 	case path == "/api/v1/users" && request.Method == http.MethodPost:
 		a.addUser(writer, request, context)
 	case strings.HasPrefix(path, "/api/v1/users/") && strings.HasSuffix(path, "/password") && request.Method == http.MethodPut:
@@ -265,6 +272,38 @@ func (a *application) overview(writer http.ResponseWriter) {
 func (a *application) listUsers(writer http.ResponseWriter) {
 	raw, err := a.control.request("list_users", nil)
 	a.controlResponse(writer, raw, err, nil)
+}
+
+func (a *application) listConnections(writer http.ResponseWriter) {
+	raw, err := a.control.request("list_connections", nil)
+	a.controlResponse(writer, raw, err, nil)
+}
+
+func (a *application) listJournal(writer http.ResponseWriter) {
+	raw, err := a.control.request("list_journal", nil)
+	a.controlResponse(writer, raw, err, nil)
+}
+
+func (a *application) disconnectConnection(writer http.ResponseWriter, request *http.Request, context requestContext) {
+	noStore(writer.Header())
+	if !a.requireCSRF(writer, request, context) {
+		return
+	}
+	rawID := strings.TrimPrefix(request.URL.Path, "/api/v1/connections/")
+	if rawID == "" || strings.Contains(rawID, "/") {
+		writeJSON(writer, 422, map[string]string{"detail": "invalid connection ID"})
+		return
+	}
+	id, err := strconv.Atoi(rawID)
+	if err != nil || id < 1 || id > 2147483647 {
+		writeJSON(writer, 422, map[string]string{"detail": "invalid connection ID"})
+		return
+	}
+	raw, controlErr := a.control.request("disconnect_connection", map[string]any{"id": id})
+	if controlErr == nil {
+		_ = a.store.audit(auditRecord{Actor: "operator", Action: "disconnect_connection", Target: strconv.Itoa(id), Success: true, Remote: remoteIdentity(request)})
+	}
+	a.controlResponse(writer, raw, controlErr, nil)
 }
 
 func (a *application) addUser(writer http.ResponseWriter, request *http.Request, context requestContext) {

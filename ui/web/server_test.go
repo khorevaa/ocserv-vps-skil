@@ -52,6 +52,12 @@ func startFakeControl(t *testing.T, path string) {
 					result = map[string]any{"service": map[string]any{"status": "running", "active_sessions": 1, "uptime_seconds": 90}, "server": map[string]any{"version": "1.5.0", "image": "ghcr.io/khorevaa/ocserv-vps:1.5.0", "domain": "vpn.test", "vpn_network": "10.66.0.0/24", "vpn_port": 443, "openconnect_checked_at": "2026-07-12T10:00:00Z", "updated_at": "2026-07-12T10:00:00Z"}, "certificate": map[string]any{"expires_at": "2026-10-10T00:00:00Z", "days_remaining": 90, "valid": true}, "users_total": 1}
 				case "list_users":
 					result = map[string]any{"users": []any{map[string]any{"username": "vpn_user", "active_sessions": 1}}, "total": 1}
+				case "list_connections":
+					result = map[string]any{"connections": []any{map[string]any{"id": 7, "username": "vpn_user", "client_ip": "192.0.2.5", "vpn_ip": "10.66.0.7", "protocol": "OpenConnect", "connected_at": "2026-07-12T10:00:00Z", "duration_seconds": 90}}, "total": 1}
+				case "list_journal":
+					result = map[string]any{"events": []any{map[string]any{"occurred_at": "2026-07-12T10:01:30Z", "event": "disconnected", "username": "vpn_user", "client_ip": "192.0.2.5", "vpn_ip": "10.66.0.7", "protocol": "OpenConnect", "duration_seconds": 90, "bytes_in": 1000, "bytes_out": 2000}}, "total": 1}
+				case "disconnect_connection":
+					result = map[string]any{"id": request["id"], "disconnected": true}
 				case "add_user":
 					result = map[string]any{"username": request["username"], "password": "Generated!Pass1"}
 				case "rotate_password":
@@ -144,7 +150,7 @@ func TestSecretOnlyFlowAndEmbeddedUI(t *testing.T) {
 			t.Fatalf("legacy UI artifact remains: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"Состояние системы", "Пользователи"} {
+	for _, required := range []string{"Состояние системы", "Подключения", "Журнал", "Пользователи", "Как в системе", "Тёмная"} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("missing UI label %s", required)
 		}
@@ -169,6 +175,29 @@ func TestSecretOnlyFlowAndEmbeddedUI(t *testing.T) {
 		if strings.Contains(string(stateData), forbidden) {
 			t.Fatalf("secret leaked to JSON state")
 		}
+	}
+}
+
+func TestConnectionsJournalAndDisconnect(t *testing.T) {
+	app, _ := testApplication(t, strings.Repeat("A", 64))
+	access := perform(app, "POST", "/api/v1/access", `{"secret":"`+strings.Repeat("A", 64)+`"}`, nil, "")
+	cookie := access.Result().Cookies()[0]
+	csrf, _ := decodeBody(t, access)["csrf_token"].(string)
+	connections := perform(app, "GET", "/api/v1/connections", "", cookie, "")
+	if connections.Code != 200 || !strings.Contains(connections.Body.String(), `"client_ip":"192.0.2.5"`) {
+		t.Fatalf("connections=%d %s", connections.Code, connections.Body.String())
+	}
+	journal := perform(app, "GET", "/api/v1/journal", "", cookie, "")
+	if journal.Code != 200 || !strings.Contains(journal.Body.String(), `"event":"disconnected"`) {
+		t.Fatalf("journal=%d %s", journal.Code, journal.Body.String())
+	}
+	withoutCSRF := perform(app, "DELETE", "/api/v1/connections/7", "", cookie, "")
+	if withoutCSRF.Code != 403 {
+		t.Fatalf("disconnect without CSRF=%d", withoutCSRF.Code)
+	}
+	disconnected := perform(app, "DELETE", "/api/v1/connections/7", "", cookie, csrf)
+	if disconnected.Code != 200 || !strings.Contains(disconnected.Body.String(), `"disconnected":true`) {
+		t.Fatalf("disconnect=%d %s", disconnected.Code, disconnected.Body.String())
 	}
 }
 

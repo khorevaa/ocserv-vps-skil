@@ -15,6 +15,7 @@ type config struct {
 	StatePath       string
 	PasswordPath    string
 	CertificatePath string
+	JournalPath     string
 	OCCTLSocket     string
 	OperationLock   string
 	OCPasswordBin   string
@@ -29,6 +30,7 @@ func defaultConfig() config {
 		StatePath:       "/opt/ocserv-vps/ui-public/state",
 		PasswordPath:    "/opt/ocserv-vps/config/ocpasswd",
 		CertificatePath: "/opt/ocserv-vps/ui-public/fullchain.pem",
+		JournalPath:     "/opt/ocserv-vps/logs/vpn-events.jsonl",
 		OCCTLSocket:     "/run/ocserv-control/occtl.sock",
 		OperationLock:   "/opt/ocserv-vps/locks/operation.lock",
 		OCPasswordBin:   "/usr/local/bin/ocpasswd",
@@ -49,6 +51,7 @@ func configFromEnvironment() (config, error) {
 	cfg.StatePath = path("OCSERV_UI_STATE_FILE", cfg.StatePath)
 	cfg.PasswordPath = path("OCSERV_UI_OCPASSWD_FILE", cfg.PasswordPath)
 	cfg.CertificatePath = path("OCSERV_UI_CERTIFICATE_FILE", cfg.CertificatePath)
+	cfg.JournalPath = path("OCSERV_UI_JOURNAL_FILE", cfg.JournalPath)
 	cfg.OCCTLSocket = path("OCSERV_UI_OCCTL_SOCKET", cfg.OCCTLSocket)
 	cfg.OperationLock = path("OCSERV_UI_OPERATION_LOCK", cfg.OperationLock)
 	cfg.OCPasswordBin = path("OCSERV_UI_OCPASSWD_BIN", cfg.OCPasswordBin)

@@ -60,7 +60,7 @@ func (f *fakeRunner) Run(argv []string, stdin string) (string, error) {
 	case reflect.DeepEqual(command, []string{"show", "status"}):
 		return `{"Status":"online","uptime":1234,"Active sessions":2,"Private backend detail":"must-not-leak"}`, nil
 	case reflect.DeepEqual(command, []string{"show", "users"}):
-		return `[{"Username":"alice","Remote IP":"192.0.2.1"},{"Username":"alice","Remote IP":"192.0.2.2"}]`, nil
+		return `[{"ID":41,"Username":"alice","Remote IP":"192.0.2.1","IPv4":"10.66.0.8","raw_connected_at":1783850400},{"ID":42,"Username":"alice","Remote IP":"192.0.2.2","IPv4":"10.66.0.9","raw_connected_at":1783850460}]`, nil
 	case reflect.DeepEqual(command, []string{"reload"}):
 		if f.failReload {
 			return "", controlFailure(503, "backend_error", "rejected")
@@ -70,6 +70,8 @@ func (f *fakeRunner) Run(argv []string, stdin string) (string, error) {
 		if f.failTerminate {
 			return "", controlFailure(503, "backend_error", "rejected")
 		}
+		return `{}`, nil
+	case reflect.DeepEqual(command, []string{"disconnect", "id", "41"}):
 		return `{}`, nil
 	default:
 		return "", errors.New("unexpected command: " + strings.Join(command, " "))
@@ -106,12 +108,56 @@ func testService(t *testing.T) (*controlService, *fakeRunner, config) {
 	cfg.StatePath = state
 	cfg.PasswordPath = password
 	cfg.CertificatePath = filepath.Join(root, "fullchain.pem")
+	cfg.JournalPath = filepath.Join(root, "vpn-events.jsonl")
 	cfg.OCCTLSocket = filepath.Join(root, "occtl.sock")
 	cfg.OperationLock = filepath.Join(root, "locks", "operation.lock")
 	cfg.OCPasswordBin = filepath.Join(root, "ocpasswd")
 	cfg.OCCTLBin = filepath.Join(root, "occtl")
 	runner := &fakeRunner{passwordPath: password}
 	return newControlService(cfg, runner), runner, cfg
+}
+
+func TestConnectionsDisconnectAndVPNJournalAreAllowlisted(t *testing.T) {
+	service, runner, cfg := testService(t)
+	service.now = func() time.Time { return time.Unix(1783850520, 0).UTC() }
+	connections, err := service.listConnections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := connections["connections"].([]map[string]any)
+	if len(rows) != 2 || rows[0]["id"] != 41 || rows[0]["duration_seconds"] != 120 || rows[0]["client_ip"] != "192.0.2.1" {
+		t.Fatalf("unexpected connections: %#v", rows)
+	}
+	encoded, _ := json.Marshal(rows)
+	if strings.Contains(string(encoded), "raw_connected_at") {
+		t.Fatalf("raw backend field leaked: %s", encoded)
+	}
+	if _, err = service.disconnectConnection(41); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(runner.calls[len(runner.calls)-1][4:], []string{"disconnect", "id", "41"}) {
+		t.Fatalf("unsafe disconnect command: %#v", runner.calls)
+	}
+	journal := strings.Join([]string{
+		`{"occurred_at":1783850400,"event":"connected","username":"alice","remote_ip":"192.0.2.1","vpn_ip":"10.66.0.8","duration_seconds":0,"bytes_in":0,"bytes_out":0}`,
+		`{"occurred_at":1783850520,"event":"disconnected","username":"alice","remote_ip":"192.0.2.1","vpn_ip":"10.66.0.8","duration_seconds":120,"bytes_in":1000,"bytes_out":2000}`,
+		`{"occurred_at":1783850521,"event":"invalid","username":"alice","remote_ip":"192.0.2.1","vpn_ip":"10.66.0.8","secret":"must-not-leak"}`,
+	}, "\n") + "\n"
+	if err = os.WriteFile(cfg.JournalPath, []byte(journal), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := service.listJournal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := listed["events"].([]map[string]any)
+	if len(events) != 2 || events[0]["event"] != "disconnected" || events[0]["bytes_out"] != int64(2000) {
+		t.Fatalf("unexpected journal: %#v", events)
+	}
+	encoded, _ = json.Marshal(events)
+	if strings.Contains(string(encoded), "must-not-leak") {
+		t.Fatalf("journal leaked unapproved fields: %s", encoded)
+	}
 }
 
 func TestOverviewAndUsersAreAllowlisted(t *testing.T) {
@@ -225,6 +271,10 @@ func TestProtocolValidationAndErrorMapping(t *testing.T) {
 	response = processRequest(service, map[string]any{"request_id": "3", "action": "overview", "path": "/etc/shadow"})
 	if response.Error.Code != "unexpected_field" {
 		t.Fatalf("unexpected extra field response: %#v", response)
+	}
+	response = processRequest(service, map[string]any{"request_id": "4", "action": "disconnect_connection", "id": "../bad"})
+	if response.Error.Code != "invalid_connection_id" {
+		t.Fatalf("unexpected invalid connection response: %#v", response)
 	}
 	response = processRequest(service, []any{"overview"})
 	if response.Error.Code != "invalid_request" {

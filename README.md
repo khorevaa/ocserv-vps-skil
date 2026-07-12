@@ -21,7 +21,7 @@ The canonical installable bundle is [`skills/ocserv-vps/`](skills/ocserv-vps/).
 - checks the running image ID, configuration, and TCP/UDP listeners
 - requires a real OpenConnect login and tunneled HTTPS request from an isolated network namespace after bootstrap, upgrade, and rollback
 - includes a controller-side OpenConnect test for Linux or WSL2
-- optionally installs a Dockerized management UI for server overview, user creation, and password rotation
+- optionally installs a Dockerized management UI for server status, active connections, VPN journal, user creation, and password rotation
 - supports generated-password user creation, verified image upgrades, and rollback
 - optionally prepares nginx on port 80 for ACME only, outside both VPN and UI paths
 
@@ -85,7 +85,7 @@ Installation reserves host UID/GID `10001` as the locked nologin account and
 group `ocserv-ui-host`. Any existing name or numeric-ID collision aborts the
 transaction; rollback removes only the unchanged identity it created.
 
-The UI MVP uses one separately generated access secret. It shows server, certificate, connection, and user counts; lists VPN users; creates users; and rotates generated passwords with optional session termination. The secret is entered in a dedicated form, never placed in a URL, and exchanged directly for an opaque server-side operator session valid for at most 12 hours.
+The UI MVP uses one separately generated access secret. It shows server state, active connections and the normalized VPN connect/disconnect journal; can disconnect a session, create VPN users, and rotate generated passwords. It follows the system color scheme with persistent light/dark overrides. The secret is entered in a dedicated form, never placed in a URL, and exchanged directly for an opaque server-side operator session valid for at most 12 hours.
 
 Both UI services are compiled Go binaries. The unprivileged web process stores
 only versioned JSON state, while the isolated control sidecar keeps the fixed

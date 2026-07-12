@@ -26,6 +26,8 @@ const (
 	maxStateBytes        = 64 * 1024
 	maxPasswordFileBytes = 8 * 1024 * 1024
 	maxCertificateBytes  = 1024 * 1024
+	maxJournalBytes      = 8 * 1024 * 1024
+	maxJournalRows       = 500
 )
 
 var (
@@ -58,11 +60,14 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 		return nil, controlFailure(400, "invalid_action", "A valid action is required.")
 	}
 	allowed := map[string]map[string]bool{
-		"healthcheck":     {"request_id": true, "action": true},
-		"overview":        {"request_id": true, "action": true},
-		"list_users":      {"request_id": true, "action": true},
-		"add_user":        {"request_id": true, "action": true, "username": true},
-		"rotate_password": {"request_id": true, "action": true, "username": true, "terminate_sessions": true},
+		"healthcheck":           {"request_id": true, "action": true},
+		"overview":              {"request_id": true, "action": true},
+		"list_users":            {"request_id": true, "action": true},
+		"list_connections":      {"request_id": true, "action": true},
+		"list_journal":          {"request_id": true, "action": true},
+		"disconnect_connection": {"request_id": true, "action": true, "id": true},
+		"add_user":              {"request_id": true, "action": true, "username": true},
+		"rotate_password":       {"request_id": true, "action": true, "username": true, "terminate_sessions": true},
 	}
 	keys, known := allowed[action]
 	if !known {
@@ -80,6 +85,16 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 		return s.overview()
 	case "list_users":
 		return s.listUsers()
+	case "list_connections":
+		return s.listConnections()
+	case "list_journal":
+		return s.listJournal()
+	case "disconnect_connection":
+		id := safePositiveInt(request["id"])
+		if id == 0 {
+			return nil, controlFailure(400, "invalid_connection_id", "The connection ID is invalid.")
+		}
+		return s.disconnectConnection(id)
 	}
 	username, ok := request["username"].(string)
 	if !ok || !usernamePattern.MatchString(username) {
@@ -97,6 +112,64 @@ func (s *controlService) dispatch(request map[string]any) (any, error) {
 		}
 	}
 	return s.rotatePassword(username, terminate)
+}
+
+func (s *controlService) listConnections() (map[string]any, error) {
+	data, err := s.occtlJSON("show", "users")
+	if err != nil {
+		return nil, err
+	}
+	connections := normalizedConnections(data, s.now().UTC())
+	return map[string]any{"connections": connections, "total": len(connections)}, nil
+}
+
+func (s *controlService) disconnectConnection(id int) (map[string]any, error) {
+	lock, err := acquireFileLock(s.config.OperationLock)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+	if _, err = s.runOCCTL("disconnect", "id", strconv.Itoa(id)); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "disconnected": true}, nil
+}
+
+func (s *controlService) listJournal() (map[string]any, error) {
+	content, missing, err := readRegularFile(s.config.JournalPath, maxJournalBytes)
+	if missing {
+		return map[string]any{"events": []map[string]any{}, "total": 0}, nil
+	}
+	if err != nil {
+		return nil, controlFailure(500, "invalid_journal", "The VPN journal is unreadable.")
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) > maxJournalRows {
+		lines = lines[len(lines)-maxJournalRows:]
+	}
+	events := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		if line == "" || len(line) > 4096 {
+			continue
+		}
+		decoder := json.NewDecoder(strings.NewReader(line))
+		decoder.UseNumber()
+		var raw map[string]any
+		if decoder.Decode(&raw) != nil {
+			continue
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			continue
+		}
+		if event := normalizedJournalEvent(raw); event != nil {
+			events = append(events, event)
+		}
+	}
+	for left, right := 0, len(events)-1; left < right; left, right = left+1, right-1 {
+		events[left], events[right] = events[right], events[left]
+	}
+	return map[string]any{"events": events, "total": len(events)}, nil
 }
 
 func (s *controlService) backendHealth() (map[string]string, error) {
@@ -459,6 +532,135 @@ func activeUsernames(data any) []string {
 	return result
 }
 
+func normalizedConnections(data any, now time.Time) []map[string]any {
+	rows, ok := data.([]any)
+	if !ok {
+		return []map[string]any{}
+	}
+	connections := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		object, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := safePositiveInt(findValue(object, "ID"))
+		username, usernameOK := safeUsername(findValue(object, "Username"))
+		remoteIP := safeIPAddress(firstValue(object, "Remote IP", "Remote IP address", "IP Real"))
+		vpnIP := safeIPAddress(firstValue(object, "VPN IP", "IPv4", "IP", "IP Remote"))
+		if id == 0 || !usernameOK || remoteIP == nil || vpnIP == nil {
+			continue
+		}
+		connectedAt, duration := connectionTime(object, now)
+		connections = append(connections, map[string]any{
+			"id": id, "username": username, "client_ip": remoteIP, "vpn_ip": vpnIP,
+			"protocol": "OpenConnect", "connected_at": connectedAt, "duration_seconds": duration,
+		})
+	}
+	sort.Slice(connections, func(i, j int) bool {
+		left, _ := connections[i]["duration_seconds"].(int)
+		right, _ := connections[j]["duration_seconds"].(int)
+		if left == right {
+			return connections[i]["id"].(int) < connections[j]["id"].(int)
+		}
+		return left > right
+	})
+	return connections
+}
+
+func connectionTime(object map[string]any, now time.Time) (any, int) {
+	raw := safePositiveInt(firstValue(object, "raw_connected_at", "raw connected at", "raw_since"))
+	if raw > 0 {
+		connected := time.Unix(int64(raw), 0).UTC()
+		if !connected.After(now.Add(time.Minute)) {
+			duration := int(now.Sub(connected).Seconds())
+			if duration < 0 {
+				duration = 0
+			}
+			return connected.Format(time.RFC3339), duration
+		}
+	}
+	value, ok := firstValue(object, "Connected at", "Session started at", "Since").(string)
+	if !ok {
+		return nil, 0
+	}
+	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02 15:04:05", time.RFC3339} {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			parsed = parsed.UTC()
+			duration := int(now.Sub(parsed).Seconds())
+			if duration < 0 {
+				duration = 0
+			}
+			return parsed.Format(time.RFC3339), duration
+		}
+	}
+	return nil, 0
+}
+
+func normalizedJournalEvent(raw map[string]any) map[string]any {
+	occurred := safeNonnegativeInt64(raw["occurred_at"], 0)
+	if occurred < 1 {
+		return nil
+	}
+	event, eventOK := raw["event"].(string)
+	if !eventOK || (event != "connected" && event != "disconnected") {
+		return nil
+	}
+	username, usernameOK := safeUsername(raw["username"])
+	if !usernameOK {
+		return nil
+	}
+	remoteIP := safeIPAddress(raw["remote_ip"])
+	vpnIP := safeIPAddress(raw["vpn_ip"])
+	if remoteIP == nil || vpnIP == nil {
+		return nil
+	}
+	return map[string]any{
+		"occurred_at": time.Unix(occurred, 0).UTC().Format(time.RFC3339),
+		"event":       event, "username": username, "client_ip": remoteIP, "vpn_ip": vpnIP,
+		"protocol":         "OpenConnect",
+		"duration_seconds": safeNonnegativeInt(raw["duration_seconds"], 0),
+		"bytes_in":         safeNonnegativeInt64(raw["bytes_in"], 0),
+		"bytes_out":        safeNonnegativeInt64(raw["bytes_out"], 0),
+	}
+}
+
+func firstValue(object map[string]any, names ...string) any {
+	for _, name := range names {
+		if value := findValue(object, name); value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func safeUsername(value any) (string, bool) {
+	username, ok := value.(string)
+	return username, ok && usernamePattern.MatchString(username)
+}
+
+func safeIPAddress(value any) any {
+	text, ok := value.(string)
+	if !ok || len(text) > 64 {
+		return nil
+	}
+	if host, _, err := net.SplitHostPort(text); err == nil {
+		text = host
+	}
+	parsed := net.ParseIP(strings.Trim(text, "[]"))
+	if parsed == nil {
+		return nil
+	}
+	return parsed.String()
+}
+
+func safePositiveInt(value any) int {
+	parsed := safeNonnegativeInt(value, 0)
+	if parsed < 1 {
+		return 0
+	}
+	return parsed
+}
+
 func safeNonnegativeInt(value any, fallback int) int {
 	var parsed int64
 	var err error
@@ -483,6 +685,32 @@ func safeNonnegativeInt(value any, fallback int) int {
 		return fallback
 	}
 	return int(parsed)
+}
+
+func safeNonnegativeInt64(value any, fallback int64) int64 {
+	var parsed int64
+	var err error
+	switch number := value.(type) {
+	case json.Number:
+		parsed, err = number.Int64()
+	case float64:
+		if math.Trunc(number) != number || number > 9007199254740991 {
+			return fallback
+		}
+		parsed = int64(number)
+	case int:
+		parsed = int64(number)
+	case int64:
+		parsed = number
+	case string:
+		parsed, err = strconv.ParseInt(number, 10, 64)
+	default:
+		return fallback
+	}
+	if err != nil || parsed < 0 || parsed > 9007199254740991 {
+		return fallback
+	}
+	return parsed
 }
 
 func safeVersion(value string) any {

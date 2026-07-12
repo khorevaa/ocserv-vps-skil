@@ -134,6 +134,12 @@ pull_ui_component "${CONTROL_IMAGE}" 'control'
 
 create_stack_backup "before-ui-${UI_VERSION}"
 UI_BACKUP="${LAST_BACKUP}"
+VPN_LOG_DIR_EXISTED="0"
+VPN_JOURNAL_FILE_EXISTED="0"
+VPN_JOURNAL_SCRIPT_EXISTED="0"
+[[ -d "${OCSERV_LOG_DIR}" && ! -L "${OCSERV_LOG_DIR}" ]] && VPN_LOG_DIR_EXISTED="1"
+[[ -f "${OCSERV_VPN_JOURNAL_FILE}" && ! -L "${OCSERV_VPN_JOURNAL_FILE}" ]] && VPN_JOURNAL_FILE_EXISTED="1"
+[[ -f "${OCSERV_VPN_JOURNAL_SCRIPT}" && ! -L "${OCSERV_VPN_JOURNAL_SCRIPT}" ]] && VPN_JOURNAL_SCRIPT_EXISTED="1"
 
 UI_AUTH_REQUEST=""
 UI_AUTH_RESPONSE=""
@@ -200,6 +206,18 @@ rollback_ui() {
   if [[ -f "${UI_BACKUP}/config.tar" ]] && \
      ! tar -C "${OCSERV_STACK_ROOT}" -xpf "${UI_BACKUP}/config.tar"; then
     warn 'Rollback could not restore the ocserv configuration.'
+    rollback_failed=1
+  fi
+  if [[ "${VPN_JOURNAL_SCRIPT_EXISTED}" != "1" ]] && ! rm -f "${OCSERV_VPN_JOURNAL_SCRIPT}"; then
+    warn 'Rollback could not remove the newly created VPN journal script.'
+    rollback_failed=1
+  fi
+  if [[ "${VPN_JOURNAL_FILE_EXISTED}" != "1" ]] && ! rm -f "${OCSERV_VPN_JOURNAL_FILE}"; then
+    warn 'Rollback could not remove the newly created VPN journal file.'
+    rollback_failed=1
+  fi
+  if [[ "${VPN_LOG_DIR_EXISTED}" != "1" && -d "${OCSERV_LOG_DIR}" ]] && ! rmdir "${OCSERV_LOG_DIR}"; then
+    warn 'Rollback could not remove the newly created VPN log directory.'
     rollback_failed=1
   fi
   if ! compose up -d --remove-orphans >/dev/null 2>&1; then
@@ -390,12 +408,14 @@ services:
       OCSERV_UI_ALLOWED_UID: "10001"
       OCSERV_UI_CERTIFICATE_FILE: /opt/ocserv-vps/ui-public/fullchain.pem
       OCSERV_UI_STATE_FILE: /opt/ocserv-vps/ui-public/state
+      OCSERV_UI_JOURNAL_FILE: /opt/ocserv-vps/logs/vpn-events.jsonl
     volumes:
       # A directory mount is required for same-filesystem atomic snapshots of
       # ocpasswd; UI data and UI secrets remain outside this mount.
       - ./config:/opt/ocserv-vps/config:rw
       - ./locks:/opt/ocserv-vps/locks:rw
       - ./ui-public:/opt/ocserv-vps/ui-public:ro
+      - ./logs:/opt/ocserv-vps/logs:ro
       - ocserv-control-run:/run/ocserv-control
       - ocserv-ui-run:/run/ocserv-ui
     tmpfs:
@@ -455,6 +475,7 @@ if grep -q '^occtl-socket-file[[:space:]]*=' "${OCSERV_CONFIG_DIR}/ocserv.conf";
 else
   printf '%s\n' 'occtl-socket-file = /run/ocserv-control/occtl.sock' >> "${OCSERV_CONFIG_DIR}/ocserv.conf"
 fi
+ensure_vpn_journal_config
 render_compose_file
 test_image_config "${CURRENT_IMAGE}"
 
@@ -718,3 +739,4 @@ info "ocserv UI ${UI_VERSION} is active behind the secret gate on ${UI_WEB_SOCKE
 info "Forward local port ${UI_PORT} directly to that socket over SSH, then open http://${UI_LOCAL_HOST}:${UI_PORT}."
 info "The root-only access secret handoff is ${UI_ACCESS_HANDOFF}; store it securely and delete the file."
 info "Backup: ${UI_BACKUP}"
+print_ui_access_info_if_installed

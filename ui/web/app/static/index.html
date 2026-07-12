@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f7f9fc">
   <title>ocserv VPN Server</title>
   <link rel="stylesheet" href="/static/styles.css">
@@ -27,6 +27,17 @@
       <path d="M3.5 19c.5-4 2.4-6 5.5-6s5 2 5.5 6"></path>
       <circle cx="17.5" cy="9" r="2.2"></circle>
       <path d="M15.5 14c3.2-.4 5 1.2 5.3 4"></path>
+    </symbol>
+    <symbol id="icon-connections" viewBox="0 0 24 24">
+      <path d="M8 12H3M21 12h-5M8 8v8M16 8v8"></path>
+      <rect x="8" y="6" width="8" height="12" rx="2"></rect>
+    </symbol>
+    <symbol id="icon-journal" viewBox="0 0 24 24">
+      <path d="M6 4h14v16H6zM3 7h3M3 12h3M3 17h3M10 9h6M10 13h6M10 17h4"></path>
+    </symbol>
+    <symbol id="icon-theme" viewBox="0 0 24 24">
+      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"></path>
+      <circle cx="12" cy="12" r="4"></circle>
     </symbol>
     <symbol id="icon-plus" viewBox="0 0 24 24">
       <path d="M12 5v14M5 12h14"></path>
@@ -85,6 +96,15 @@
         <strong>ocserv VPN Server</strong>
       </a>
       <div class="topbar-account">
+        <label class="theme-control" for="theme-select">
+          <svg aria-hidden="true"><use href="#icon-theme"></use></svg>
+          <span class="visually-hidden">Тема оформления</span>
+          <select id="theme-select" aria-label="Тема оформления">
+            <option value="system">Как в системе</option>
+            <option value="light">Светлая</option>
+            <option value="dark">Тёмная</option>
+          </select>
+        </label>
         <button id="logout-button" class="button button--ghost" type="button">
           <svg aria-hidden="true"><use href="#icon-logout"></use></svg>
           <span>Выйти</span>
@@ -100,6 +120,14 @@
           <a class="nav-item is-active" href="#overview" data-view="overview">
             <svg aria-hidden="true"><use href="#icon-overview"></use></svg>
             <span>Состояние системы</span>
+          </a>
+          <a class="nav-item" href="#connections" data-view="connections">
+            <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
+            <span>Подключения</span>
+          </a>
+          <a class="nav-item" href="#journal" data-view="journal">
+            <svg aria-hidden="true"><use href="#icon-journal"></use></svg>
+            <span>Журнал</span>
           </a>
           <a class="nav-item" href="#users" data-view="users">
             <svg aria-hidden="true"><use href="#icon-users"></use></svg>
@@ -176,6 +204,80 @@
                 <div><dt>Последняя OpenConnect-проверка</dt><dd id="openconnect-check">—</dd></div>
               </dl>
             </article>
+          </div>
+        </section>
+
+        <section id="connections-panel" class="view-panel is-hidden" data-panel="connections" aria-labelledby="connections-title">
+          <div class="page-header">
+            <div>
+              <h1 id="connections-title">Подключения</h1>
+              <p class="page-subtitle">Активные сеансы OpenConnect</p>
+            </div>
+            <button id="connections-refresh" class="button button--secondary" type="button">
+              <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+              <span>Обновить</span>
+            </button>
+          </div>
+          <div id="connections-error" class="alert alert--danger is-hidden" role="alert"></div>
+          <div class="table-card">
+            <div class="table-scroll">
+              <table class="connections-table">
+                <thead><tr>
+                  <th scope="col">Пользователь</th>
+                  <th scope="col">IP клиента</th>
+                  <th scope="col">VPN IP</th>
+                  <th scope="col">Протокол</th>
+                  <th scope="col">Длительность</th>
+                  <th scope="col" class="table-action-heading">Действия</th>
+                </tr></thead>
+                <tbody id="connections-table-body"></tbody>
+              </table>
+              <div id="connections-loading" class="table-state"><div class="spinner" aria-hidden="true"></div><span>Загрузка подключений…</span></div>
+              <div id="connections-empty" class="table-state is-hidden">Активных подключений нет</div>
+            </div>
+            <footer class="table-footer"><span id="connections-count">0 подключений</span></footer>
+          </div>
+        </section>
+
+        <section id="journal-panel" class="view-panel is-hidden" data-panel="journal" aria-labelledby="journal-title">
+          <div class="page-header">
+            <div>
+              <h1 id="journal-title">Журнал</h1>
+              <p class="page-subtitle">Подключения и отключения, зафиксированные VPN-сервером</p>
+            </div>
+            <button id="journal-refresh" class="button button--secondary" type="button">
+              <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+              <span>Обновить</span>
+            </button>
+          </div>
+          <div id="journal-error" class="alert alert--danger is-hidden" role="alert"></div>
+          <div class="table-card">
+            <div class="table-toolbar journal-toolbar">
+              <label class="select-field" for="journal-filter">
+                <span>Событие</span>
+                <select id="journal-filter">
+                  <option value="all">Все</option>
+                  <option value="connected">Подключения</option>
+                  <option value="disconnected">Отключения</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-scroll">
+              <table class="journal-table">
+                <thead><tr>
+                  <th scope="col">Дата и время</th>
+                  <th scope="col">Событие</th>
+                  <th scope="col">Пользователь</th>
+                  <th scope="col">IP клиента</th>
+                  <th scope="col">VPN IP</th>
+                  <th scope="col">Длительность / трафик</th>
+                </tr></thead>
+                <tbody id="journal-table-body"></tbody>
+              </table>
+              <div id="journal-loading" class="table-state"><div class="spinner" aria-hidden="true"></div><span>Загрузка журнала…</span></div>
+              <div id="journal-empty" class="table-state is-hidden">Событий пока нет</div>
+            </div>
+            <footer class="table-footer"><span id="journal-count">0 событий</span></footer>
           </div>
         </section>
 
@@ -315,6 +417,24 @@
       </div>
       <footer class="modal-actions">
         <button id="credential-close" class="button button--primary" type="button">Я сохранил пароль</button>
+      </footer>
+    </section>
+
+    <section id="disconnect-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="disconnect-title">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">Активное подключение</p>
+          <h2 id="disconnect-title">Отключить пользователя?</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" aria-label="Закрыть окно"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button>
+      </header>
+      <div class="modal-body">
+        <div id="disconnect-error" class="alert alert--danger is-hidden" role="alert"></div>
+        <p>Сеанс пользователя <strong id="disconnect-username"></strong> будет завершён. Пользователь сможет подключиться снова с действующим паролем.</p>
+      </div>
+      <footer class="modal-actions">
+        <button class="button button--secondary modal-close" type="button">Отмена</button>
+        <button id="disconnect-submit" class="button button--danger" type="button">Отключить</button>
       </footer>
     </section>
   </div>

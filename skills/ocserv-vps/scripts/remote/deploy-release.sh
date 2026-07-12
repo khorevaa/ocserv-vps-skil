@@ -114,3 +114,4 @@ ACTIVATION_COMMITTED="1"
 info "Release ${VERSION} is active as ${NEW_IMAGE}."
 info "Rollback target: ${OLD_VERSION} (${OLD_IMAGE})."
 info "Backup: ${BACKUP_DIR}"
+print_ui_access_info_if_installed
