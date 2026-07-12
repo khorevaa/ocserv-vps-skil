@@ -73,6 +73,16 @@ UI_PORT_BINDINGS="$(docker inspect --format '{{json .HostConfig.PortBindings}}' 
   die 'The UI web container is not healthy.'
 docker exec ocserv-vps-ui /usr/local/bin/ocserv-ui healthcheck || die 'The UI web Unix-socket health probe failed.'
 printf 'Unix socket: %s (10001:10001 mode 0600); container health: healthy\n' "${OCSERV_UI_WEB_SOCKET}"
+[[ -d "${OCSERV_UI_ACTION_DIR}" && ! -L "${OCSERV_UI_ACTION_DIR}" ]] || \
+  die 'The fixed ocserv action directory is missing or unsafe.'
+[[ "$(stat -c '%u:%g %a' "${OCSERV_UI_ACTION_DIR}")" == "0:${OCSERV_UI_HOST_GID} 770" ]] || \
+  die 'The fixed ocserv action directory has unexpected ownership or permissions.'
+for unit in "${OCSERV_UI_RESTART_PATH_UNIT}" "${OCSERV_UI_RESTART_SERVICE_UNIT}"; do
+  [[ -f "${unit}" && ! -L "${unit}" && "$(stat -c '%u:%g %a' "${unit}")" == '0:0 644' ]] || \
+    die "The fixed ocserv restart unit is missing or unsafe: ${unit}"
+done
+systemctl is-active --quiet ocserv-vps-restart.path || die 'The fixed ocserv restart path unit is not active.'
+printf '%s\n' 'Restart bridge: fixed host-side action, active; Docker socket is not mounted'
 curl --noproxy '*' --unix-socket "${OCSERV_UI_WEB_SOCKET}" \
   --header "Host: ${UI_LOCAL_HOST}:${UI_PORT}" --fail --silent --show-error \
   "http://${UI_LOCAL_HOST}:${UI_PORT}/api/v1/health"

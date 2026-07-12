@@ -73,6 +73,8 @@ acquire_stack_locks
 for path in \
   "${UI_DATA_DIR}" "${UI_SECRETS_DIR}" "${UI_PUBLIC_DIR}" \
   "${UI_WEB_RUN_DIR}" "${UI_TMPFILES_FILE}" \
+  "${OCSERV_UI_ACTION_TMPFILES_FILE}" \
+  "${OCSERV_UI_RESTART_PATH_UNIT}" "${OCSERV_UI_RESTART_SERVICE_UNIT}" \
   "${OCSERV_UI_ACCESS_INFO_SCRIPT}" \
   "${UI_ACCESS_HANDOFF}" \
   "${LEGACY_UI_NGINX_SITE}" "${LEGACY_UI_NGINX_LINK}" \
@@ -237,6 +239,23 @@ rollback_ui() {
     rollback_failed=1
     identity_cleanup_safe=0
   fi
+  systemctl disable --now ocserv-vps-restart.path >/dev/null 2>&1 || true
+  if ! rm -f "${OCSERV_UI_RESTART_PATH_UNIT}" "${OCSERV_UI_RESTART_SERVICE_UNIT}" \
+      "${OCSERV_UI_ACTION_TMPFILES_FILE}" "${OCSERV_UI_RESTART_TRIGGER}"; then
+    warn 'Rollback could not remove the ocserv restart bridge.'
+    rollback_failed=1
+    identity_cleanup_safe=0
+  fi
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [[ -L "${OCSERV_UI_ACTION_DIR}" ]]; then
+    warn 'Rollback refuses to follow a symlink at the ocserv action path.'
+    rollback_failed=1
+    identity_cleanup_safe=0
+  elif [[ -d "${OCSERV_UI_ACTION_DIR}" ]] && ! rmdir "${OCSERV_UI_ACTION_DIR}"; then
+    warn 'Rollback could not remove the ocserv action directory.'
+    rollback_failed=1
+    identity_cleanup_safe=0
+  fi
   if ! rm -f "${OCSERV_UI_ACCESS_INFO_SCRIPT}"; then
     warn 'Rollback could not remove the UI access-info command.'
     rollback_failed=1
@@ -356,6 +375,7 @@ systemd-tmpfiles --create "${UI_TMPFILES_FILE}"
   die 'systemd-tmpfiles did not create a real UI web runtime directory.'
 [[ "$(stat -c '%u:%g %a' "${UI_WEB_RUN_DIR}")" == '10001:10001 700' ]] || \
   die 'The UI web runtime directory has unexpected ownership or permissions.'
+install_ocserv_restart_bridge
 SESSION_KEY="$(openssl rand -hex 32)"
 ACCESS_SECRET="$(openssl rand -hex 32)"
 UI_LOCAL_HOST="ocserv-$(openssl rand -hex 16).localhost"
@@ -383,6 +403,7 @@ OCSERV_CONTROL_IMAGE=${CONTROL_IMAGE}
 OCSERV_UI_LOCAL_HOST=${UI_LOCAL_HOST}
 OCSERV_UI_LOCAL_PORT=${UI_PORT}
 OCSERV_UI_SSH_PORT=${SSH_PORT}
+OCSERV_UI_VPN_DOMAIN=${DOMAIN}
 EOF
 chmod 0640 "${OCSERV_UI_ENV_FILE}"
 render_ui_access_info_script
@@ -416,6 +437,11 @@ services:
       - ./locks:/opt/ocserv-vps/locks:rw
       - ./ui-public:/opt/ocserv-vps/ui-public:ro
       - ./logs:/opt/ocserv-vps/logs:ro
+      - type: bind
+        source: ${OCSERV_UI_ACTION_DIR}
+        target: ${OCSERV_UI_ACTION_DIR}
+        bind:
+          create_host_path: false
       - ocserv-control-run:/run/ocserv-control
       - ocserv-ui-run:/run/ocserv-ui
     tmpfs:
@@ -438,6 +464,7 @@ services:
     environment:
       OCSERV_UI_ALLOWED_ORIGIN: "http://${UI_LOCAL_HOST}:${UI_PORT}"
       OCSERV_UI_IMAGE_NAME: "${UI_IMAGE}"
+      OCSERV_UI_VPN_DOMAIN: "${DOMAIN}"
       OCSERV_UI_TRUSTED_PROXY_CIDRS: ""
       OCSERV_UI_JSON: /var/lib/ocserv-ui/state.json
       OCSERV_UI_CONTROL_SOCKET: /run/ocserv-ui/control.sock

@@ -126,9 +126,11 @@ internal Docker network.
   from a root-only snapshot when `ocpasswd` or reload fails.
 - Use `occtl terminate user` when rotation requests session invalidation.
 - Use only `occtl disconnect id <validated integer>` for the connection action.
-- Implement service restart only as the fixed `occtl stop now` operation. The
-  existing `restart: unless-stopped` policy starts the ocserv container again;
-  never mount the Docker socket or accept a command, service name, or arguments
+- Implement service restart through the fixed host-side
+  `ocserv-vps-restart.path`/`ocserv-vps-restart.service` bridge. Control may
+  create only `/run/ocserv-vps-actions/restart-ocserv`; the root-owned oneshot
+  removes that trigger and runs `docker restart --timeout 10 ocserv-vps`.
+  Never mount the Docker socket or accept a command, service name, or arguments
   from the browser.
 - Allowlist every connection and journal response field; never return full raw
   `occtl` objects or arbitrary server-log lines.

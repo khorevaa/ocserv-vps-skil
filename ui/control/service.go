@@ -123,8 +123,20 @@ func (s *controlService) restartService() (map[string]any, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	if _, err = s.runOCCTL("stop", "now"); err != nil {
-		return nil, err
+	file, err := os.OpenFile(s.config.RestartTrigger, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if errors.Is(err, os.ErrExist) {
+		info, statErr := os.Lstat(s.config.RestartTrigger)
+		if statErr != nil || !info.Mode().IsRegular() {
+			return nil, controlFailure(500, "restart_unavailable", "The ocserv restart bridge is unavailable.")
+		}
+		return map[string]any{"restarting": true}, nil
+	}
+	if err != nil {
+		return nil, controlFailure(500, "restart_unavailable", "The ocserv restart bridge is unavailable.")
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(s.config.RestartTrigger)
+		return nil, controlFailure(500, "restart_unavailable", "The ocserv restart request could not be committed.")
 	}
 	return map[string]any{"restarting": true}, nil
 }

@@ -48,6 +48,8 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertNotIn("docker.sock", control_block)
         self.assertIn("OCSERV_UI_JOURNAL_FILE: /opt/ocserv-vps/logs/vpn-events.jsonl", control_block)
         self.assertIn("- ./logs:/opt/ocserv-vps/logs:ro", control_block)
+        self.assertIn("source: ${OCSERV_UI_ACTION_DIR}", control_block)
+        self.assertIn("target: ${OCSERV_UI_ACTION_DIR}", control_block)
 
         web_block = compose_contract.split("\n  ocserv-ui:\n", 1)[1].split(
             "\nvolumes:\n", 1
@@ -88,6 +90,8 @@ class InstallComposeContractTests(unittest.TestCase):
         )
         self.assertIn("OCSERV_UI_LOCAL_HOST=${UI_LOCAL_HOST}", installer)
         self.assertIn("OCSERV_UI_LOCAL_PORT=${UI_PORT}", installer)
+        self.assertIn("OCSERV_UI_VPN_DOMAIN=${DOMAIN}", installer)
+        self.assertIn('OCSERV_UI_VPN_DOMAIN: "${DOMAIN}"', web_block)
         self.assertEqual(
             installer.count("url=http://${UI_LOCAL_HOST}:${UI_PORT}"), 1
         )
@@ -124,6 +128,11 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertIn('s.runOCCTL("disconnect", "id", strconv.Itoa(id))', control)
         self.assertIn('path == "/api/v1/journal"', web)
         self.assertIn('path == "/api/v1/connections"', web)
+        self.assertIn("os.OpenFile(s.config.RestartTrigger", control)
+        self.assertNotIn('runOCCTL("stop", "now")', control)
+        self.assertIn("install_ocserv_restart_bridge()", common)
+        self.assertIn("PathExists=${OCSERV_UI_RESTART_TRIGGER}", common)
+        self.assertIn("ExecStart=${docker_bin} restart --timeout 10 ${OCSERV_CONTAINER}", common)
 
     def test_ui_upgrade_is_transactional_and_preserves_access(self) -> None:
         repository = pathlib.Path(__file__).resolve().parents[3]
@@ -135,6 +144,8 @@ class InstallComposeContractTests(unittest.TestCase):
         self.assertIn("ensure_vpn_journal_config", remote)
         self.assertIn("render_compose_file", remote)
         self.assertIn("OCSERV_UI_LOCAL_HOST=${UI_LOCAL_HOST}", remote)
+        self.assertIn("OCSERV_UI_VPN_DOMAIN=${DOMAIN}", remote)
+        self.assertIn("install_ocserv_restart_bridge", remote)
         self.assertIn("print_ui_access_info_if_installed", remote)
         self.assertNotIn("docker.sock", remote)
 

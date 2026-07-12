@@ -73,8 +73,6 @@ func (f *fakeRunner) Run(argv []string, stdin string) (string, error) {
 		return `{}`, nil
 	case reflect.DeepEqual(command, []string{"disconnect", "id", "41"}):
 		return `{}`, nil
-	case reflect.DeepEqual(command, []string{"stop", "now"}):
-		return `{}`, nil
 	default:
 		return "", errors.New("unexpected command: " + strings.Join(command, " "))
 	}
@@ -113,6 +111,10 @@ func testService(t *testing.T) (*controlService, *fakeRunner, config) {
 	cfg.JournalPath = filepath.Join(root, "vpn-events.jsonl")
 	cfg.OCCTLSocket = filepath.Join(root, "occtl.sock")
 	cfg.OperationLock = filepath.Join(root, "locks", "operation.lock")
+	cfg.RestartTrigger = filepath.Join(root, "actions", "restart-ocserv")
+	if err := os.MkdirAll(filepath.Dir(cfg.RestartTrigger), 0o770); err != nil {
+		t.Fatal(err)
+	}
 	cfg.OCPasswordBin = filepath.Join(root, "ocpasswd")
 	cfg.OCCTLBin = filepath.Join(root, "occtl")
 	runner := &fakeRunner{passwordPath: password}
@@ -162,14 +164,18 @@ func TestConnectionsDisconnectAndVPNJournalAreAllowlisted(t *testing.T) {
 	}
 }
 
-func TestRestartServiceUsesFixedOCCTLCommand(t *testing.T) {
-	service, runner, _ := testService(t)
+func TestRestartServiceCreatesOnlyFixedHostTrigger(t *testing.T) {
+	service, runner, cfg := testService(t)
 	result, err := service.restartService()
 	if err != nil || result["restarting"] != true {
 		t.Fatalf("restart failed: %#v %v", result, err)
 	}
-	if !reflect.DeepEqual(runner.calls[len(runner.calls)-1][4:], []string{"stop", "now"}) {
-		t.Fatalf("unsafe restart command: %#v", runner.calls)
+	if len(runner.calls) != 0 {
+		t.Fatalf("restart unexpectedly executed a command: %#v", runner.calls)
+	}
+	info, err := os.Lstat(cfg.RestartTrigger)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o640 {
+		t.Fatalf("restart trigger is unsafe: %#v %v", info, err)
 	}
 }
 

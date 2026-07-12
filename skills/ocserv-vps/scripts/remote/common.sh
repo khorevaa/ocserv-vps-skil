@@ -13,6 +13,11 @@ OCSERV_UI_PUBLIC_DIR="${OCSERV_STACK_ROOT}/ui-public"
 OCSERV_UI_WEB_RUN_DIR="/run/ocserv-ui-web"
 OCSERV_UI_WEB_SOCKET="${OCSERV_UI_WEB_RUN_DIR}/web.sock"
 OCSERV_UI_TMPFILES_FILE="/etc/tmpfiles.d/ocserv-vps-ui.conf"
+OCSERV_UI_ACTION_DIR="/run/ocserv-vps-actions"
+OCSERV_UI_RESTART_TRIGGER="${OCSERV_UI_ACTION_DIR}/restart-ocserv"
+OCSERV_UI_ACTION_TMPFILES_FILE="/etc/tmpfiles.d/ocserv-vps-actions.conf"
+OCSERV_UI_RESTART_PATH_UNIT="/etc/systemd/system/ocserv-vps-restart.path"
+OCSERV_UI_RESTART_SERVICE_UNIT="/etc/systemd/system/ocserv-vps-restart.service"
 OCSERV_UI_ACCESS_INFO_SCRIPT="/usr/local/sbin/ocserv-ui-access-info"
 OCSERV_UI_HOST_USER="ocserv-ui-host"
 OCSERV_UI_HOST_GROUP="ocserv-ui-host"
@@ -38,6 +43,61 @@ warn() { printf '[ocserv-vps] WARNING: %s\n' "$*" >&2; }
 die() { printf '[ocserv-vps] ERROR: %s\n' "$*" >&2; exit 1; }
 require_root() { [[ "${EUID}" -eq 0 ]] || die 'Run the remote script as root.'; }
 require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
+
+install_ocserv_restart_bridge() {
+  local docker_bin tmpfiles_temp path_temp service_temp
+  docker_bin="$(command -v docker)"
+  [[ "${docker_bin}" == /* && "${docker_bin}" != *[[:space:]]* ]] || die 'Unsafe Docker executable path.'
+
+  tmpfiles_temp="$(mktemp /etc/tmpfiles.d/.ocserv-vps-actions.conf.XXXXXX)"
+  printf 'd %s 0770 root %s -\n' "${OCSERV_UI_ACTION_DIR}" "${OCSERV_UI_HOST_GID}" > "${tmpfiles_temp}"
+  chmod 0644 "${tmpfiles_temp}"
+  mv -T "${tmpfiles_temp}" "${OCSERV_UI_ACTION_TMPFILES_FILE}"
+  systemd-tmpfiles --create "${OCSERV_UI_ACTION_TMPFILES_FILE}"
+  [[ -d "${OCSERV_UI_ACTION_DIR}" && ! -L "${OCSERV_UI_ACTION_DIR}" ]] || die 'Unsafe ocserv action directory.'
+  [[ "$(stat -c '%u:%g %a' "${OCSERV_UI_ACTION_DIR}")" == "0:${OCSERV_UI_HOST_GID} 770" ]] || \
+    die 'The ocserv action directory has unsafe ownership or permissions.'
+  rm -f "${OCSERV_UI_RESTART_TRIGGER}"
+
+  service_temp="$(mktemp /etc/systemd/system/.ocserv-vps-restart.service.XXXXXX)"
+  cat > "${service_temp}" <<EOF
+[Unit]
+Description=Restart the managed ocserv container after an authenticated UI request
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/rm -f ${OCSERV_UI_RESTART_TRIGGER}
+ExecStart=${docker_bin} restart --timeout 10 ${OCSERV_CONTAINER}
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=${OCSERV_UI_ACTION_DIR}
+EOF
+  chmod 0644 "${service_temp}"
+  mv -T "${service_temp}" "${OCSERV_UI_RESTART_SERVICE_UNIT}"
+
+  path_temp="$(mktemp /etc/systemd/system/.ocserv-vps-restart.path.XXXXXX)"
+  cat > "${path_temp}" <<EOF
+[Unit]
+Description=Watch for authenticated ocserv restart requests
+
+[Path]
+PathExists=${OCSERV_UI_RESTART_TRIGGER}
+Unit=ocserv-vps-restart.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 "${path_temp}"
+  mv -T "${path_temp}" "${OCSERV_UI_RESTART_PATH_UNIT}"
+
+  systemctl daemon-reload
+  systemctl enable --now ocserv-vps-restart.path >/dev/null
+  systemctl is-active --quiet ocserv-vps-restart.path || die 'The ocserv restart path unit is not active.'
+}
 
 ui_host_identity_is_absent() {
   local passwd_entries group_entries

@@ -19,10 +19,11 @@ validate_version "${UI_VERSION}"; validate_registry_image "${UI_IMAGE}"; validat
 for path in "${OCSERV_STATE_FILE}" "${OCSERV_ENV_FILE}" "${OCSERV_COMPOSE_FILE}" "${OCSERV_UI_ENV_FILE}" "${OCSERV_UI_COMPOSE_FILE}"; do
   [[ -f "${path}" && ! -L "${path}" ]] || die "Managed file is missing or unsafe: ${path}"
 done
-for command in awk curl docker flock openssl stat; do require_command "${command}"; done
+for command in awk curl docker flock openssl stat systemctl systemd-tmpfiles; do require_command "${command}"; done
 acquire_stack_locks
-CURRENT_IMAGE="$(state_get current_image)"; VPN_PORT="$(state_get vpn_port)"
-[[ -n "${CURRENT_IMAGE}" && -n "${VPN_PORT}" ]] || die 'Managed VPN state is incomplete.'
+CURRENT_IMAGE="$(state_get current_image)"; VPN_PORT="$(state_get vpn_port)"; DOMAIN="$(state_get domain)"
+[[ -n "${CURRENT_IMAGE}" && -n "${VPN_PORT}" && -n "${DOMAIN}" ]] || die 'Managed VPN state is incomplete.'
+validate_domain "${DOMAIN}"
 
 validate_component() {
   local image="$1" component="$2" version revision source compatibility
@@ -69,6 +70,7 @@ OCSERV_CONTROL_IMAGE=${CONTROL_IMAGE}
 OCSERV_UI_LOCAL_HOST=${UI_LOCAL_HOST}
 OCSERV_UI_LOCAL_PORT=${UI_PORT}
 OCSERV_UI_SSH_PORT=${SSH_PORT}
+OCSERV_UI_VPN_DOMAIN=${DOMAIN}
 EOF
 chmod 0640 "${OCSERV_UI_ENV_FILE}"
 cat > "${OCSERV_UI_COMPOSE_FILE}" <<EOF
@@ -92,6 +94,10 @@ services:
       - ./locks:/opt/ocserv-vps/locks:rw
       - ./ui-public:/opt/ocserv-vps/ui-public:ro
       - ./logs:/opt/ocserv-vps/logs:ro
+      - type: bind
+        source: ${OCSERV_UI_ACTION_DIR}
+        target: ${OCSERV_UI_ACTION_DIR}
+        bind: {create_host_path: false}
       - ocserv-control-run:/run/ocserv-control
       - ocserv-ui-run:/run/ocserv-ui
     tmpfs: ["/tmp:mode=0700"]
@@ -109,6 +115,7 @@ services:
     environment:
       OCSERV_UI_ALLOWED_ORIGIN: "http://${UI_LOCAL_HOST}:${UI_PORT}"
       OCSERV_UI_IMAGE_NAME: "${UI_IMAGE}"
+      OCSERV_UI_VPN_DOMAIN: "${DOMAIN}"
       OCSERV_UI_TRUSTED_PROXY_CIDRS: ""
       OCSERV_UI_JSON: /var/lib/ocserv-ui/state.json
       OCSERV_UI_CONTROL_SOCKET: /run/ocserv-ui/control.sock
@@ -134,6 +141,7 @@ volumes:
     driver_opts: {type: tmpfs, device: tmpfs, o: "size=4m,mode=0710,uid=0,gid=10001"}
 EOF
 chmod 0640 "${OCSERV_UI_COMPOSE_FILE}"
+install_ocserv_restart_bridge
 render_ui_access_info_script
 compose up -d --remove-orphans
 health_check_stack "${CURRENT_IMAGE}" "${VPN_PORT}" 60 || die 'VPN health failed after UI upgrade.'

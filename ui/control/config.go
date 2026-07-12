@@ -18,6 +18,7 @@ type config struct {
 	JournalPath     string
 	OCCTLSocket     string
 	OperationLock   string
+	RestartTrigger  string
 	OCPasswordBin   string
 	OCCTLBin        string
 	CommandTimeout  time.Duration
@@ -33,6 +34,7 @@ func defaultConfig() config {
 		JournalPath:     "/opt/ocserv-vps/logs/vpn-events.jsonl",
 		OCCTLSocket:     "/run/ocserv-control/occtl.sock",
 		OperationLock:   "/opt/ocserv-vps/locks/operation.lock",
+		RestartTrigger:  "/run/ocserv-vps-actions/restart-ocserv",
 		OCPasswordBin:   "/usr/local/bin/ocpasswd",
 		OCCTLBin:        "/usr/local/bin/occtl",
 		CommandTimeout:  8 * time.Second,

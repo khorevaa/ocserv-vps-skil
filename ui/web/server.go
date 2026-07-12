@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"mime"
@@ -24,6 +25,7 @@ var embeddedUI embed.FS
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$`)
 var secretPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43,256}$`)
 var uiImagePattern = regexp.MustCompile(`^ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+var vpnDomainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
 
 type application struct {
 	config       config
@@ -146,6 +148,11 @@ func (a *application) serveRoot(writer http.ResponseWriter, authed bool) {
 	}
 	noStore(writer.Header())
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if !authed {
+		page := strings.ReplaceAll(string(data), "{{VPN_DOMAIN}}", html.EscapeString(a.config.VPNDomain))
+		page = strings.ReplaceAll(page, "{{UI_VERSION}}", html.EscapeString(version))
+		data = []byte(page)
+	}
 	_, _ = writer.Write(data)
 }
 

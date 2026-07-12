@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f7f9fc">
-  <title>Доступ к ocserv VPN Server</title>
+  <title>Доступ к {{VPN_DOMAIN}}</title>
   <link rel="stylesheet" href="/static/access.css">
   <script src="/static/access.js" defer></script>
 </head>
@@ -16,7 +16,7 @@
         <div class="access-mark" aria-hidden="true">VPN</div>
         <div>
           <p class="access-eyebrow">Защищённый доступ</p>
-          <h1 id="access-title">ocserv VPN Server</h1>
+          <h1 id="access-title">{{VPN_DOMAIN}}</h1>
         </div>
       </div>
       <p class="access-hint">Панель доступна только через SSH-туннель. Введите секрет доступа.</p>
@@ -28,6 +28,7 @@
         </label>
         <button id="access-submit" type="submit">Продолжить</button>
       </form>
+      <p class="access-meta"><span>ocserv</span><span>UI v{{UI_VERSION}}</span></p>
     </section>
   </main>
 </body>

@@ -45,7 +45,7 @@ body { margin: 0; }
   font-weight: 800;
 }
 
-h1 { margin: 3px 0 0; font-size: 24px; }
+h1 { margin: 3px 0 0; font-size: 24px; overflow-wrap: anywhere; }
 
 .access-eyebrow {
   margin: 0;
@@ -97,6 +97,18 @@ button:disabled { opacity: .65; cursor: wait; }
   background: #fff4f4;
 }
 
+.access-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 24px 0 -10px;
+  padding-top: 16px;
+  border-top: 1px solid #e3ebf4;
+  color: #8493a6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .is-hidden { display: none; }
 
 @media (prefers-color-scheme: dark) {
@@ -119,7 +131,10 @@ button:disabled { opacity: .65; cursor: wait; }
   }
 
   .access-eyebrow,
-  .access-hint { color: #95a5b8; }
+  .access-hint,
+  .access-meta { color: #95a5b8; }
+
+  .access-meta { border-top-color: #2b3a49; }
 
   input {
     color: #edf4fb;

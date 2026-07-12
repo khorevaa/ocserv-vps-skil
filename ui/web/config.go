@@ -15,6 +15,7 @@ type config struct {
 	SessionKeyFile        string
 	AccessSecretFile      string
 	UIImage               string
+	VPNDomain             string
 	AllowedOrigin         string
 	AllowedHost           string
 	SessionTTLSeconds     int64
@@ -49,6 +50,10 @@ func loadConfig() (config, error) {
 	result.SessionKeyFile = env("OCSERV_UI_SESSION_KEY_FILE", "/run/secrets/session-key")
 	result.AccessSecretFile = env("OCSERV_UI_ACCESS_SECRET_FILE", "/run/secrets/access-secret")
 	result.UIImage = strings.TrimSpace(os.Getenv("OCSERV_UI_IMAGE_NAME"))
+	result.VPNDomain = strings.TrimSpace(os.Getenv("OCSERV_UI_VPN_DOMAIN"))
+	if !vpnDomainPattern.MatchString(result.VPNDomain) {
+		return result, fmt.Errorf("OCSERV_UI_VPN_DOMAIN is invalid")
+	}
 	result.AllowedOrigin = strings.TrimSpace(os.Getenv("OCSERV_UI_ALLOWED_ORIGIN"))
 	if result.AllowedOrigin == "" {
 		return result, fmt.Errorf("OCSERV_UI_ALLOWED_ORIGIN is required")

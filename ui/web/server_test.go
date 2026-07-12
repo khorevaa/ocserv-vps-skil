@@ -82,7 +82,7 @@ func testApplication(t *testing.T, accessSecret string) (*application, config) {
 	writeTestSecret(t, sessionKey, "test-session-key-with-at-least-32-bytes!")
 	writeTestSecret(t, access, accessSecret)
 	startFakeControl(t, control)
-	cfg := config{DataFile: filepath.Join(root, "state.json"), ControlSocket: control, WebSocket: filepath.Join(root, "web.sock"), SessionKeyFile: sessionKey, AccessSecretFile: access, UIImage: "ghcr.io/khorevaa/ocserv-vps-ui:0.4.5", AllowedOrigin: testOrigin, AllowedHost: strings.TrimPrefix(testOrigin, "http://"), SessionTTLSeconds: 3600, AuditRetentionSeconds: 3600, AuditMaxRows: 20, ControlTimeoutSeconds: 1, MaxRequestBytes: 16384, RequireRootSecrets: false}
+	cfg := config{DataFile: filepath.Join(root, "state.json"), ControlSocket: control, WebSocket: filepath.Join(root, "web.sock"), SessionKeyFile: sessionKey, AccessSecretFile: access, UIImage: "ghcr.io/khorevaa/ocserv-vps-ui:0.4.5", VPNDomain: "vpn.test", AllowedOrigin: testOrigin, AllowedHost: strings.TrimPrefix(testOrigin, "http://"), SessionTTLSeconds: 3600, AuditRetentionSeconds: 3600, AuditMaxRows: 20, ControlTimeoutSeconds: 1, MaxRequestBytes: 16384, RequireRootSecrets: false}
 	app, err := newApplication(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +127,9 @@ func TestSecretOnlyFlowAndEmbeddedUI(t *testing.T) {
 	root := perform(app, "GET", "/", "", nil, "")
 	if !strings.Contains(root.Body.String(), "access-secret") {
 		t.Fatal("access form missing")
+	}
+	if !strings.Contains(root.Body.String(), "vpn.test") || !strings.Contains(root.Body.String(), "UI vdev") || strings.Contains(root.Body.String(), "{{VPN_DOMAIN}}") {
+		t.Fatalf("access runtime identity missing: %s", root.Body.String())
 	}
 	invalid := perform(app, "POST", "/api/v1/access", `{"secret":"`+strings.Repeat("B", 64)+`"}`, nil, "")
 	if invalid.Code != 404 || strings.Contains(invalid.Body.String(), secret) {
