@@ -80,6 +80,12 @@ jobs:
         run: |
           printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
+      - name: Create BuildKit builder
+        run: |
+          set -euo pipefail
+          docker buildx create --driver docker-container --name ocserv-builder --use
+          docker buildx inspect --bootstrap
+
       - name: Build and push immutable image
         id: build
         env:
