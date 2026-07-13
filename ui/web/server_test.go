@@ -155,9 +155,14 @@ func TestSecretOnlyFlowAndEmbeddedUI(t *testing.T) {
 			t.Fatalf("legacy UI artifact remains: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"Состояние системы", "Подключения", "Журнал", "Пользователи", "Как в системе", "Тёмная"} {
+	for _, required := range []string{"Состояние системы", "Подключения", "Журнал", "Пользователи", "Как в системе", "Тёмная", "Секрет доступа", "Последняя проверка"} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("missing UI label %s", required)
+		}
+	}
+	for _, obsolete := range []string{"Строка доступа", "Последняя OpenConnect-проверка"} {
+		if strings.Contains(html, obsolete) {
+			t.Fatalf("obsolete UI label remains: %s", obsolete)
 		}
 	}
 	me := perform(app, "GET", "/api/v1/auth/me", "", cookies[0], "")
