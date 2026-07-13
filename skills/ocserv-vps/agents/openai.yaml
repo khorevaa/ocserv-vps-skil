@@ -1,7 +1,7 @@
 interface:
-  display_name: "ocserv VPS and UI"
-  short_description: "Deploy and manage Dockerized ocserv with UI"
-  default_prompt: "Use $ocserv-vps to deploy or maintain a verified Dockerized ocserv VPN and its secure management UI with ACME, firewall, health checks, and rollback."
+  display_name: "ocserv VPS deployment"
+  short_description: "Deploy and operate ocserv on a VPS"
+  default_prompt: "Use $ocserv-vps to deploy ocserv on my VPS and install the private UI only when I ask for it."
 
 policy:
   allow_implicit_invocation: false

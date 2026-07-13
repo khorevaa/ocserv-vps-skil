@@ -1,0 +1,55 @@
+name: Validate skill
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+      - main
+      - codex/**
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate installable skill
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path("skills/ocserv-vps")
+          skill = root / "SKILL.md"
+          metadata = root / "agents/openai.yaml"
+          license_file = root / "LICENSE.txt"
+
+          for path in (skill, metadata, license_file):
+              assert path.is_file(), f"missing required file: {path}"
+
+          text = skill.read_text(encoding="utf-8")
+          assert len(text.splitlines()) < 500, "SKILL.md must stay concise"
+          assert text.startswith("---\n"), "missing YAML frontmatter"
+          _, frontmatter, body = text.split("---", 2)
+
+          fields = {}
+          for line in frontmatter.strip().splitlines():
+              key, value = line.split(":", 1)
+              fields[key.strip()] = value.strip()
+
+          assert set(fields) == {"name", "description"}, fields
+          assert fields["name"] == "ocserv-vps"
+          assert fields["description"]
+          assert body.strip()
+
+          interface = metadata.read_text(encoding="utf-8")
+          assert "$ocserv-vps" in interface
+
+          for removed in ("docker", "ui", "skills/ocserv-vps/scripts", "skills/ocserv-vps/references"):
+              assert not Path(removed).exists(), f"obsolete duplicated runtime returned: {removed}"
+          PY
