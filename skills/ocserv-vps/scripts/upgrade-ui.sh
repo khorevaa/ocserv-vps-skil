@@ -30,8 +30,8 @@ for value in HOST UI_VERSION UI_IMAGE CONTROL_IMAGE; do [[ -n "${!value}" ]] || 
 ocserv_validate_version "${UI_VERSION}"
 ocserv_validate_registry_image "${UI_IMAGE}"
 ocserv_validate_registry_image "${CONTROL_IMAGE}"
-[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui:${UI_VERSION}" ]]
-[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-control:${UI_VERSION}" ]]
+[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-web:${UI_VERSION}" ]]
+[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-control:${UI_VERSION}" ]]
 ocserv_validate_port 'SSH port' "${SSH_PORT}"
 [[ "${APPROVE_RESTART}" == 1 ]] || { printf '%s\n' '--approve-restart is required.' >&2; exit 2; }
 if [[ "${DRY_RUN}" == 1 ]]; then

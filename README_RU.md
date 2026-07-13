@@ -22,7 +22,7 @@ $ocserv-vps разверни полностью настроенный Dockerize
 
 - read-only preflight и проверка состояния VPS
 - bootstrap с сохранением существующего Docker, ACME, forwarding, NAT и ограничивающим firewall
-- развёртывание проверенных version-тегов из `ghcr.io/khorevaa/ocserv-vps`
+- развёртывание проверенных version-тегов из `ghcr.io/khorevaa/ocserv-vps-server`
 - обязательный реальный вход OpenConnect и HTTPS-проверка через туннель
 - управление VPN-пользователями со случайными паролями
 - транзакционные обновление и rollback ocserv

@@ -14,8 +14,8 @@ require_root
 [[ -n "${UI_VERSION}" && -n "${UI_IMAGE}" && -n "${CONTROL_IMAGE}" ]] || die 'UI version and images are required.'
 [[ "${APPROVE_RESTART}" == 1 ]] || die '--approve-restart is required.'
 validate_version "${UI_VERSION}"; validate_registry_image "${UI_IMAGE}"; validate_registry_image "${CONTROL_IMAGE}"
-[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui:${UI_VERSION}" ]] || die 'Unexpected UI image.'
-[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-control:${UI_VERSION}" ]] || die 'Unexpected control image.'
+[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-web:${UI_VERSION}" ]] || die 'Unexpected UI image.'
+[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-control:${UI_VERSION}" ]] || die 'Unexpected control image.'
 for path in "${OCSERV_STATE_FILE}" "${OCSERV_ENV_FILE}" "${OCSERV_COMPOSE_FILE}" "${OCSERV_UI_ENV_FILE}" "${OCSERV_UI_COMPOSE_FILE}"; do
   [[ -f "${path}" && ! -L "${path}" ]] || die "Managed file is missing or unsafe: ${path}"
 done

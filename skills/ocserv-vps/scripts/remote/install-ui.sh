@@ -50,9 +50,9 @@ done
 validate_version "${UI_VERSION}"
 validate_registry_image "${UI_IMAGE}"
 validate_registry_image "${CONTROL_IMAGE}"
-[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui:${UI_VERSION}" ]] || \
+[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-web:${UI_VERSION}" ]] || \
   die 'Unexpected UI image repository or tag.'
-[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-control:${UI_VERSION}" ]] || \
+[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-control:${UI_VERSION}" ]] || \
   die 'Unexpected control image repository or tag.'
 validate_port 'local tunnel port' "${UI_PORT}"
 validate_port 'SSH port' "${SSH_PORT}"

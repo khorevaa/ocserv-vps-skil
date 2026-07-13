@@ -61,11 +61,11 @@ the Docker socket, or broader host mounts.
 
 Publish two explicit version tags through `khorevaa/ocserv-vps/.github/workflows/publish-ui-images.yml`:
 
-- `ghcr.io/khorevaa/ocserv-vps-ui:<version>`
-- `ghcr.io/khorevaa/ocserv-vps-control:<version>`
+- `ghcr.io/khorevaa/ocserv-vps-ui-web:<version>`
+- `ghcr.io/khorevaa/ocserv-vps-ui-control:<version>`
 
 The workflow accepts only a digest-pinned Go builder and the
-explicit `ghcr.io/khorevaa/ocserv-vps:1.5.0` control base. It publishes
+explicit `ghcr.io/khorevaa/ocserv-vps-server:1.5.0` control base. It publishes
 revision/version staging tags first, smoke-tests those exact artifacts, and
 promotes the matched pair without overwriting a different version tag.
 

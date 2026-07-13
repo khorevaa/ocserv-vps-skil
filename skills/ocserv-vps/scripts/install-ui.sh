@@ -66,12 +66,12 @@ done
 ocserv_validate_version "${UI_VERSION}"
 ocserv_validate_registry_image "${UI_IMAGE}"
 ocserv_validate_registry_image "${CONTROL_IMAGE}"
-[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui:${UI_VERSION}" ]] || {
-  printf '%s\n' 'UI image must be ghcr.io/khorevaa/ocserv-vps-ui:<ui-version>.' >&2
+[[ "${UI_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-web:${UI_VERSION}" ]] || {
+  printf '%s\n' 'UI image must be ghcr.io/khorevaa/ocserv-vps-ui-web:<ui-version>.' >&2
   exit 2
 }
-[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-control:${UI_VERSION}" ]] || {
-  printf '%s\n' 'Control image must be ghcr.io/khorevaa/ocserv-vps-control:<ui-version>.' >&2
+[[ "${CONTROL_IMAGE}" == "ghcr.io/khorevaa/ocserv-vps-ui-control:${UI_VERSION}" ]] || {
+  printf '%s\n' 'Control image must be ghcr.io/khorevaa/ocserv-vps-ui-control:<ui-version>.' >&2
   exit 2
 }
 ocserv_validate_port 'local tunnel port' "${UI_PORT}"

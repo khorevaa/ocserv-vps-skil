@@ -22,7 +22,7 @@ $ocserv-vps bootstrap a complete Dockerized ocserv VPN on my VPS
 
 - read-only VPS preflight and status inspection
 - Docker-preserving bootstrap with ACME, forwarding, NAT, and restrictive firewall rules
-- verified explicit-version image deployment from `ghcr.io/khorevaa/ocserv-vps`
+- verified explicit-version image deployment from `ghcr.io/khorevaa/ocserv-vps-server`
 - real OpenConnect authentication and tunneled HTTPS checks
 - generated-password VPN user management
 - transactional ocserv upgrades and rollback

@@ -93,7 +93,7 @@ Verify the archive in the `khorevaa/ocserv-vps` GitHub Actions workflow before i
 ocserv-vps:<version>
 ```
 
-Push the version tag to `ghcr.io/khorevaa/ocserv-vps` with SBOM and provenance. The VPS accepts the explicit version tag without `@sha256` and checks the version, source SHA, and base image OCI labels after pulling.
+Push the version tag to `ghcr.io/khorevaa/ocserv-vps-server` with SBOM and provenance. The VPS accepts the explicit version tag without `@sha256` and checks the version, source SHA, and base image OCI labels after pulling.
 
 The current Dockerfile deliberately favors build reliability over minimal size: it compiles ocserv from source inside the pinned base image and retains the build/runtime packages. Introduce a multi-stage runtime image only after testing the full set of dynamically loaded authentication and networking libraries.
 
