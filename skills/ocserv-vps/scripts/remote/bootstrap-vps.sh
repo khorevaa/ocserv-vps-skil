@@ -204,5 +204,8 @@ write_state "${VERSION}" "${IMAGE}" "" "" "${DOMAIN}" "${VPN_NETWORK}" "${VPN_PO
 BOOTSTRAP_COMMITTED="1"
 info "Full VPS bootstrap completed for ${DOMAIN}."
 info "Docker image: ${IMAGE}"
+printf '\n%s\n' 'Sensitive initial VPN credentials follow. Store them securely.'
+printf 'VPN username: %s\n' "${VPN_USERNAME}"
+printf 'VPN password: %s\n' "${GENERATED_VPN_PASSWORD}"
 info 'Initial VPN credentials were written root-only to /root/ocserv-vps-initial-credentials.'
 info 'Run status.sh next and test a client before closing the independent SSH session.'
