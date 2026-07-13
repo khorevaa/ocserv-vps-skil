@@ -510,28 +510,47 @@ svg {
   margin-left: auto;
 }
 
-.theme-control {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 38px;
-  padding: 0 8px;
-  color: var(--muted);
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 7px;
+.theme-picker {
+  position: relative;
 }
 
-.theme-control svg {
+.theme-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.theme-trigger:hover,
+.theme-trigger[aria-expanded="true"] {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.theme-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 22%, transparent);
+  border-color: var(--blue);
+}
+
+.theme-trigger svg {
   width: 18px;
   height: 18px;
+  color: var(--muted);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-width: 1.8;
 }
 
-.theme-control select,
 .select-field select {
   color: var(--text);
   background: var(--surface);
@@ -539,19 +558,74 @@ svg {
   border-radius: 6px;
 }
 
-.theme-control select {
-  max-width: 132px;
-  height: 30px;
-  padding: 0 24px 0 4px;
-  font-weight: 600;
-  border: 0;
-  background: transparent;
+.theme-chevron {
+  width: 8px;
+  height: 8px;
+  margin: -4px 2px 0 4px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease, margin 140ms ease;
 }
 
-.theme-control option {
-  color: #1c3048;
-  background: #ffffff;
+.theme-trigger[aria-expanded="true"] .theme-chevron {
+  margin-top: 4px;
+  transform: rotate(225deg);
+}
+
+.theme-menu {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 196px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 10px 30px rgb(13 31 48 / 20%), var(--small-shadow);
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
   font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-option:hover,
+.theme-option:focus-visible {
+  color: var(--text-strong);
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.theme-option.is-selected {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.theme-option-check {
+  width: 18px;
+  color: var(--blue);
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+  opacity: 0;
+}
+
+.theme-option.is-selected .theme-option-check {
+  opacity: 1;
 }
 
 .operator-name {

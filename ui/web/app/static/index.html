@@ -96,15 +96,18 @@
         <strong id="topbar-title">ocserv VPN Server</strong>
       </a>
       <div class="topbar-account">
-        <label class="theme-control" for="theme-select">
-          <svg aria-hidden="true"><use href="#icon-theme"></use></svg>
-          <span class="visually-hidden">Тема оформления</span>
-          <select id="theme-select" aria-label="Тема оформления">
-            <option value="system">Как в системе</option>
-            <option value="light">Светлая</option>
-            <option value="dark">Тёмная</option>
-          </select>
-        </label>
+        <div id="theme-picker" class="theme-picker">
+          <button id="theme-button" class="theme-trigger" type="button" aria-label="Тема оформления: Как в системе" aria-haspopup="menu" aria-expanded="false" aria-controls="theme-menu">
+            <svg aria-hidden="true"><use href="#icon-theme"></use></svg>
+            <span id="theme-label">Как в системе</span>
+            <span class="theme-chevron" aria-hidden="true"></span>
+          </button>
+          <div id="theme-menu" class="theme-menu is-hidden" role="menu" aria-label="Тема оформления">
+            <button class="theme-option is-selected" type="button" role="menuitemradio" aria-checked="true" tabindex="-1" data-theme="system"><span>Как в системе</span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+            <button class="theme-option" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme="light"><span>Светлая</span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+            <button class="theme-option" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme="dark"><span>Тёмная</span><span class="theme-option-check" aria-hidden="true">✓</span></button>
+          </div>
+        </div>
         <button id="logout-button" class="button button--ghost" type="button">
           <svg aria-hidden="true"><use href="#icon-logout"></use></svg>
           <span>Выйти</span>
@@ -127,7 +130,7 @@
           </a>
           <a class="nav-item" href="#journal" data-view="journal">
             <svg aria-hidden="true"><use href="#icon-journal"></use></svg>
-            <span>Журнал</span>
+            <span>Журнал событий</span>
           </a>
           <a class="nav-item" href="#users" data-view="users">
             <svg aria-hidden="true"><use href="#icon-users"></use></svg>
@@ -267,7 +270,7 @@
         <section id="journal-panel" class="view-panel is-hidden" data-panel="journal" aria-labelledby="journal-title">
           <div class="page-header">
             <div>
-              <h1 id="journal-title">Журнал</h1>
+              <h1 id="journal-title">Журнал событий</h1>
               <p class="page-subtitle">Подключения и отключения, зафиксированные VPN-сервером</p>
             </div>
             <button id="journal-refresh" class="button button--secondary" type="button">

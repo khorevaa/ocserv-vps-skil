@@ -155,7 +155,7 @@ func TestSecretOnlyFlowAndEmbeddedUI(t *testing.T) {
 			t.Fatalf("legacy UI artifact remains: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"Состояние системы", "Подключения", "Журнал", "Пользователи", "Как в системе", "Тёмная", "Секрет доступа", "Последняя проверка"} {
+	for _, required := range []string{"Состояние системы", "Подключения", "Журнал событий", "Пользователи", "Как в системе", "Тёмная", "Секрет доступа", "Последняя проверка", `aria-haspopup="menu"`, `role="menuitemradio"`} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("missing UI label %s", required)
 		}

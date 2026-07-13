@@ -35,14 +35,27 @@
   const journalTableBody = el("journal-table-body");
   const pageSize = 10;
 
-  const themeSelect = el("theme-select");
+  const themePicker = el("theme-picker");
+  const themeButton = el("theme-button");
+  const themeMenu = el("theme-menu");
+  const themeLabel = el("theme-label");
+  const themeOptions = Array.from(document.querySelectorAll(".theme-option"));
   const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+  const themeLabels = { system: "Как в системе", light: "Светлая", dark: "Тёмная" };
+  let currentTheme = "system";
 
   function applyTheme(mode) {
     const selected = ["system", "light", "dark"].includes(mode) ? mode : "system";
     if (selected === "system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.dataset.theme = selected;
-    themeSelect.value = selected;
+    currentTheme = selected;
+    themeLabel.textContent = themeLabels[selected];
+    themeButton.setAttribute("aria-label", `Тема оформления: ${themeLabels[selected]}`);
+    themeOptions.forEach((option) => {
+      const active = option.dataset.theme === selected;
+      option.classList.toggle("is-selected", active);
+      option.setAttribute("aria-checked", String(active));
+    });
     try { localStorage.setItem("ocserv-ui-theme", selected); } catch (_error) { /* preference remains in memory */ }
     const dark = selected === "dark" || (selected === "system" && systemTheme.matches);
     document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#101821" : "#f7f9fc");
@@ -51,9 +64,58 @@
   let savedTheme = "system";
   try { savedTheme = localStorage.getItem("ocserv-ui-theme") || "system"; } catch (_error) { /* system default */ }
   applyTheme(savedTheme);
-  themeSelect.addEventListener("change", () => applyTheme(themeSelect.value));
+
+  function closeThemeMenu(restoreFocus = false) {
+    setHidden(themeMenu, true);
+    themeButton.setAttribute("aria-expanded", "false");
+    if (restoreFocus) themeButton.focus();
+  }
+
+  function openThemeMenu(focusTarget = "selected") {
+    setHidden(themeMenu, false);
+    themeButton.setAttribute("aria-expanded", "true");
+    const selectedIndex = Math.max(0, themeOptions.findIndex((option) => option.dataset.theme === currentTheme));
+    const targetIndex = focusTarget === "first" ? 0 : focusTarget === "last" ? themeOptions.length - 1 : selectedIndex;
+    themeOptions[targetIndex].focus();
+  }
+
+  themeButton.addEventListener("click", () => {
+    if (themeMenu.classList.contains("is-hidden")) openThemeMenu();
+    else closeThemeMenu();
+  });
+  themeButton.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      openThemeMenu(event.key === "ArrowDown" ? "first" : "last");
+    }
+  });
+  themeOptions.forEach((option) => {
+    option.addEventListener("click", () => {
+      applyTheme(option.dataset.theme || "system");
+      closeThemeMenu(true);
+    });
+  });
+  themeMenu.addEventListener("keydown", (event) => {
+    const current = Math.max(0, themeOptions.indexOf(document.activeElement));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      themeOptions[(current + direction + themeOptions.length) % themeOptions.length].focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      themeOptions[event.key === "Home" ? 0 : themeOptions.length - 1].focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeThemeMenu(true);
+    } else if (event.key === "Tab") {
+      closeThemeMenu();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!themePicker.contains(event.target)) closeThemeMenu();
+  });
   systemTheme.addEventListener("change", () => {
-    if (themeSelect.value === "system") applyTheme("system");
+    if (currentTheme === "system") applyTheme("system");
   });
 
   class ApiError extends Error {
@@ -249,7 +311,7 @@
         link.removeAttribute("aria-current");
       }
     });
-    const titles = { overview: "Состояние системы", connections: "Подключения", journal: "Журнал", users: "Пользователи" };
+    const titles = { overview: "Состояние системы", connections: "Подключения", journal: "Журнал событий", users: "Пользователи" };
     document.title = `${titles[nextView]} — ocserv VPN Server`;
     closeSidebar();
 
