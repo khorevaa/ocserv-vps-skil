@@ -114,7 +114,7 @@ pull_ui_component() {
   [[ "${actual_version}" == "${UI_VERSION}" ]] || die "${component} image version is ${actual_version}; expected ${UI_VERSION}."
   [[ "${actual_component}" == "${component}" ]] || die "Image ${image} is not the ${component} component."
   [[ "${actual_revision}" =~ ^[0-9a-f]{40,64}$ ]] || die "Image ${image} has no valid source revision label."
-  [[ "${actual_source}" == 'https://github.com/khorevaa/ocserv-vps-skil' ]] || die "Image ${image} has an unexpected source label."
+  [[ "${actual_source}" == 'https://github.com/khorevaa/ocserv-vps' ]] || die "Image ${image} has an unexpected source label."
   if [[ "${component}" == 'ui' ]]; then
     UI_IMAGE_REVISION="${actual_revision}"
     base_image="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.base.name" }}' "${image}")"

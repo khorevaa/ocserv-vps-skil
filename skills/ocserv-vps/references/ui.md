@@ -59,7 +59,7 @@ the Docker socket, or broader host mounts.
 
 ## Images and state
 
-Publish two explicit version tags through `publish-ui-images.yml`:
+Publish two explicit version tags through `khorevaa/ocserv-vps/.github/workflows/publish-ui-images.yml`:
 
 - `ghcr.io/khorevaa/ocserv-vps-ui:<version>`
 - `ghcr.io/khorevaa/ocserv-vps-control:<version>`

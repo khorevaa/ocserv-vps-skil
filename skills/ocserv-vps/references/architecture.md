@@ -87,7 +87,7 @@ Require two immutable inputs:
 1. exact signed ocserv source release tuple
 2. base image reference containing `@sha256:<digest>`
 
-Verify the archive in GitHub Actions before it enters the Docker build context. Build the reviewed repository-root `docker/Dockerfile` and tag the result as:
+Verify the archive in the `khorevaa/ocserv-vps` GitHub Actions workflow before it enters the Docker build context. Build the reviewed product repository-root `docker/Dockerfile` and tag the result as:
 
 ```text
 ocserv-vps:<version>

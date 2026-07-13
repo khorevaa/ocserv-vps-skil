@@ -2,7 +2,7 @@
 
 ## GHCR publication workflow
 
-Use `.github/workflows/publish-ocserv-image.yml` as the only supported image publisher. It prepares a verified build context with `docker/prepare-context.sh`, builds the explicit `docker/Dockerfile`, and pushes to `ghcr.io/khorevaa/ocserv-vps` with provenance and SBOM enabled.
+Use `.github/workflows/publish-ocserv-image.yml` in [`khorevaa/ocserv-vps`](https://github.com/khorevaa/ocserv-vps) as the only supported image publisher. It prepares a verified build context with `docker/prepare-context.sh`, builds the explicit `docker/Dockerfile`, and pushes to `ghcr.io/khorevaa/ocserv-vps` with provenance and SBOM enabled. The Codex-skill repository does not contain or publish product builds.
 
 The workflow uses the repository `GITHUB_TOKEN` with `packages: write`; do not copy a GHCR token to the VPS. New GHCR packages may be private by default. Make the package public for anonymous deployment, or pre-authenticate Docker through a separate reviewed secret flow.
 
@@ -49,7 +49,7 @@ Do not use the Docker convenience script for production bootstrap.
 When an ocserv release changes build dependencies or build systems:
 
 1. inspect official release notes and build instructions
-2. update the explicit `docker/Dockerfile`
+2. update the explicit `docker/Dockerfile` in `khorevaa/ocserv-vps`
 3. run syntax and render checks
 4. run preflight
 5. rerun the publisher with the same immutable tuple

@@ -32,7 +32,7 @@ validate_component() {
   revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${image}")"
   source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "${image}")"
   [[ "${version}" == "${UI_VERSION}" && "${revision}" =~ ^[0-9a-f]{40,64}$ ]] || die "Invalid ${component} image metadata."
-  [[ "${source}" == 'https://github.com/khorevaa/ocserv-vps-skil' ]] || die "Invalid ${component} source label."
+  [[ "${source}" == 'https://github.com/khorevaa/ocserv-vps' ]] || die "Invalid ${component} source label."
   [[ "$(docker image inspect --format '{{ index .Config.Labels "org.ocserv-vps.component" }}' "${image}")" == "${component}" ]] || die "Invalid ${component} label."
   if [[ "${component}" == control ]]; then
     compatibility="$(docker image inspect --format '{{ index .Config.Labels "org.ocserv-vps.ocserv-image" }}' "${image}")"

@@ -1,11 +1,11 @@
 ---
 name: ocserv-vps
-description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN and its optional SSH-tunneled management UI on a root-managed Debian or Ubuntu VPS. Use when Codex must publish version-tagged ocserv or UI images to GitHub Container Registry, prepare a fresh VPS, install Docker only when absent, issue ACME certificates, configure forwarding/NAT/firewall, inspect health, manage VPN users, install the Unix-socket UI, change VPN passwords through the UI, upgrade images, or roll back. The workflow requires verified image inputs, explicit approval for applicable mutations, and real OpenConnect data-path checks.
+description: Bootstrap, secure, operate, upgrade, and roll back a complete Dockerized ocserv VPN and its optional SSH-tunneled management UI on a root-managed Debian or Ubuntu VPS. Use when Codex must prepare a fresh VPS, deploy version-tagged images published by khorevaa/ocserv-vps, install Docker only when absent, issue ACME certificates, configure forwarding/NAT/firewall, inspect health, manage VPN users, install the Unix-socket UI, change VPN passwords through the UI, upgrade images, or roll back. The workflow requires verified image inputs, explicit approval for applicable mutations, and real OpenConnect data-path checks.
 ---
 
 # ocserv VPS
 
-Deploy and operate a complete ocserv VPN stack through deterministic bundled scripts. Build and publish the ocserv image through the repository's reviewed GitHub Actions workflow, then deploy the explicit GHCR version tag to the VPS.
+Deploy and operate a complete ocserv VPN stack through deterministic bundled scripts. Build and publish ocserv/UI images through the reviewed workflows in [`khorevaa/ocserv-vps`](https://github.com/khorevaa/ocserv-vps), then deploy explicit GHCR version tags to the VPS.
 
 Treat this skill as manual-first. Bootstrap changes host networking and firewall policy. Deployment and rollback can disconnect active VPN sessions.
 
@@ -17,7 +17,7 @@ Treat this skill as manual-first. Bootstrap changes host networking and firewall
 - Require explicit firewall approval for bootstrap or network changes and restart approval for container recreation; UI installation must not change the firewall.
 - Install Docker Engine only when `docker` is absent. When Docker exists, preserve it and add only a missing Compose v2 plugin.
 - Build every ocserv image from an exact HTTPS source archive after SHA-256, detached-signature, and full-fingerprint verification in GitHub Actions.
-- Keep `docker/Dockerfile` explicit and reviewed. Publish `ghcr.io/khorevaa/ocserv-vps:<version>`.
+- Keep the product repository's `docker/Dockerfile` explicit and reviewed. Publish `ghcr.io/khorevaa/ocserv-vps:<version>` only from `khorevaa/ocserv-vps`.
 - Deploy to the VPS only by an explicit version tag. Never deploy `latest` or a digest-qualified reference.
 - Require successful OpenConnect authentication and a tunneled HTTPS request after bootstrap, upgrade, and rollback. Treat a failed probe as a failed deployment.
 - Keep ocserv on host networking with TCP and UDP listeners; do not place HTTP `proxy_pass` or `grpc_pass` in front of it.
@@ -45,7 +45,7 @@ The default stack is IPv4-only. It assigns clients from `10.66.0.0/24`, enables 
 
 ## Required image-publish inputs
 
-Collect before running `.github/workflows/publish-ocserv-image.yml`:
+Collect before running `khorevaa/ocserv-vps/.github/workflows/publish-ocserv-image.yml`:
 
 - exact ocserv version
 - exact HTTPS source archive URL and SHA-256 digest
@@ -53,7 +53,7 @@ Collect before running `.github/workflows/publish-ocserv-image.yml`:
 - exact HTTPS signing-key URL and full expected fingerprint
 - Debian/Ubuntu base image reference containing an immutable `@sha256:` digest
 
-The workflow verifies the source, builds the explicit repository-root `docker/Dockerfile`, and pushes `ghcr.io/khorevaa/ocserv-vps:<version>` to GHCR. Use that exact version tag.
+The product workflow verifies the source, builds its explicit repository-root `docker/Dockerfile`, and pushes `ghcr.io/khorevaa/ocserv-vps:<version>` to GHCR. Use that exact version tag.
 
 ## Required bootstrap inputs
 
@@ -113,7 +113,7 @@ Treat these as blockers:
 
 ### 2. Publish the version-tagged image
 
-Run the `Publish ocserv image` GitHub Actions workflow with the exact release tuple and pinned base-image digest. Confirm the workflow summary contains `ghcr.io/khorevaa/ocserv-vps:<version>`. Ensure the GHCR package is public before unauthenticated fresh-VPS deployment, or pre-authenticate Docker separately.
+Run the `Publish ocserv image` workflow in `khorevaa/ocserv-vps` with the exact release tuple and pinned base-image digest. Confirm the workflow summary contains `ghcr.io/khorevaa/ocserv-vps:<version>`. Ensure the GHCR package is public before unauthenticated fresh-VPS deployment, or pre-authenticate Docker separately.
 
 ### 3. Bootstrap a complete VPS
 
@@ -203,7 +203,7 @@ runtime directory as `10001:10001` mode `0700` and the socket as mode `0600`.
 Back those numeric IDs with the locked `ocserv-ui-host` host account and group;
 never reuse a pre-existing identity.
 
-Read [`references/ui.md`](references/ui.md) and [`references/nginx-ui.md`](references/nginx-ui.md) before UI work. Publish the explicit UI and control images, then review a dry run:
+Read [`references/ui.md`](references/ui.md) and [`references/nginx-ui.md`](references/nginx-ui.md) before UI work. Publish the explicit UI and control images from `khorevaa/ocserv-vps`, require the OCI source label `https://github.com/khorevaa/ocserv-vps`, then review a dry run:
 
 ```bash
 ./scripts/install-ui.sh \

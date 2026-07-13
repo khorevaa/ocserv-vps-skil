@@ -23,7 +23,7 @@ When only Compose v2 is missing, install the plugin separately or extend the plu
 
 SHA, fingerprint, or signature failures are hard stops. Re-resolve the immutable artifact tuple from official sources.
 
-For compile failure, inspect the GitHub Actions Docker build step. Common causes are a changed mandatory library, base-image package rename, or new Meson/Autotools requirement. Update only `docker/Dockerfile` and retry the same tuple.
+For compile failure, inspect the `khorevaa/ocserv-vps` GitHub Actions Docker build step. Common causes are a changed mandatory library, base-image package rename, or new Meson/Autotools requirement. Update only that product repository's `docker/Dockerfile` and retry the same tuple.
 
 The active container is unchanged until the exact published GHCR version tag is pulled and passes config validation.
 
